@@ -1,9 +1,10 @@
-from django.urls import path
-from . import views
-from rest_framework_simplejwt.views import TokenObtainPairView
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import UserViewSet
+
+router = DefaultRouter()
+router.register('', UserViewSet, basename='user')  # 空前缀，接口路径为 /api/user/xxx/
 
 urlpatterns = [
-    path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('register/', views.RegisterView.as_view(), name='register'),
-    path('info/', views.UserInfoView.as_view(), name='user_info'),  # 新增
+    path('', include(router.urls)),
 ]

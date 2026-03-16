@@ -3,12 +3,19 @@ import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
 import Home from '../views/Home.vue'
 
-// 路由守卫：判断是否登录
+// 路由守卫：验证登录状态+身份权限
 const requireAuth = (to, from, next) => {
-  if (localStorage.token) {
-    next()
-  } else {
+  const token = localStorage.token
+  const userRole = localStorage.userRole // 存储当前登录身份：student/teacher
+
+  if (!token) {
+    next('/') // 未登录跳登录页
+  } else if (!userRole) {
+    // 有token但无身份，强制选择身份
+    localStorage.removeItem('token')
     next('/')
+  } else {
+    next()
   }
 }
 
@@ -27,7 +34,7 @@ const routes = [
     path: '/home',
     name: 'Home',
     component: Home,
-    beforeEnter: requireAuth // 需要登录才能访问
+    beforeEnter: requireAuth // 需要登录+身份验证
   }
 ]
 
