@@ -2,17 +2,33 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
 import Home from '../views/Home.vue'
-import ActivityList from '../views/ActivityList.vue'
-import ActivityDetail from '../views/ActivityDetail.vue'
-import UserCenter from '../views/UserCenter.vue'
+
+// 路由守卫：判断是否登录
+const requireAuth = (to, from, next) => {
+  if (localStorage.token) {
+    next()
+  } else {
+    next('/')
+  }
+}
 
 const routes = [
-  { path: '/', component: Login },
-  { path: '/register', component: Register },
-  { path: '/home', component: Home },
-  { path: '/activity', component: ActivityList },
-  { path: '/activity/:id', component: ActivityDetail },
-  { path: '/user', component: UserCenter },
+  {
+    path: '/',
+    name: 'Login',
+    component: Login
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: Register
+  },
+  {
+    path: '/home',
+    name: 'Home',
+    component: Home,
+    beforeEnter: requireAuth // 需要登录才能访问
+  }
 ]
 
 const router = createRouter({

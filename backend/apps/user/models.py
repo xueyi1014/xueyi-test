@@ -1,10 +1,10 @@
 from django.db import models
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import User
 
-class User(AbstractUser):
-    ROLE = ((1,'student'),(2,'teacher'),(3,'admin'))
-    role = models.IntegerField(choices=ROLE, default=1)
-    student_id = models.CharField(max_length=20, blank=True)
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    student_id = models.CharField(max_length=20, unique=True)
     phone = models.CharField(max_length=11)
-    class Meta:
-        db_table = 'user'
+
+    def __str__(self):
+        return self.student_id
