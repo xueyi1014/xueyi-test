@@ -26,8 +26,10 @@ class ActivityViewSet(viewsets.ModelViewSet):
     queryset = Activity.objects.all()
 
     def get_serializer_class(self):
-        if self.request.user.role == 'teacher':
-            return ActivitySerializer
+        # 确保 user 存在
+        if hasattr(self.request, 'user') and self.request.user.is_authenticated:
+            if self.request.user.role == 'teacher':
+                return ActivitySerializer
         return StudentActivitySerializer
 
     def get_permissions(self):
@@ -38,13 +40,56 @@ class ActivityViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
-        if self.request.user.role == 'teacher':
-            return Activity.objects.filter(creator=self.request.user)
+        if hasattr(self.request, 'user') and self.request.user.is_authenticated:
+            if self.request.user.role == 'teacher':
+                return Activity.objects.filter(creator=self.request.user)
         # 学生只能看到已发布的活动
         return Activity.objects.filter(status='published')
 
+    def create(self, request, *args, **kwargs):
+        print("=== 创建活动开始 ===")
+        print("请求数据:", request.data)
+        print("用户:", request.user)
+        
+        try:
+            # 复制数据，避免修改原始数据
+            data = request.data.copy()
+            batches_data = data.pop('batches', [])
+            
+            # 使用序列化器创建活动
+            serializer = self.get_serializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            activity = serializer.instance
+            
+            # 创建批次
+            for batch_data in batches_data:
+                if batch_data.get('start_time') and batch_data.get('end_time'):
+                    ActivityBatch.objects.create(
+                        activity=activity,
+                        batch_name=batch_data.get('batch_name'),
+                        quota=batch_data.get('quota'),
+                        start_time=batch_data.get('start_time'),
+                        end_time=batch_data.get('end_time')
+                    )
+            
+            # 重新获取序列化后的数据返回
+            serializer = self.get_serializer(activity)
+            headers = self.get_success_headers(serializer.data)
+            print("创建成功")
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+            
+        except Exception as e:
+            print("创建失败:", str(e))
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def perform_create(self, serializer):
+        # 设置活动创建人为当前用户，并直接设置为已发布状态
+        serializer.save(creator=self.request.user, status='published')
+
     # 发布活动 - POST /api/activity/{id}/publish/
-    @action(detail=True, methods=['post'])
     def publish(self, request, pk=None):
         activity = self.get_object()
         if activity.status != 'draft':
@@ -125,6 +170,10 @@ class ActivityViewSet(viewsets.ModelViewSet):
                     # 创建报名记录
                     apply = ActivityApply.objects.create(batch=batch, student=request.user)
                     
+                    # 更新用户的待参与活动数
+                    request.user.pending_activities += 1
+                    request.user.save()
+                    
                     # 使用原子操作更新报名人数
                     updated = ActivityBatch.objects.filter(
                         id=batch_id, 
@@ -132,8 +181,10 @@ class ActivityViewSet(viewsets.ModelViewSet):
                     ).update(apply_count=F('apply_count') + 1)
                     
                     if updated == 0:
-                        # 名额已满，删除报名记录
+                        # 名额已满，删除报名记录并回滚待参与活动数
                         apply.delete()
+                        request.user.pending_activities -= 1
+                        request.user.save()
                         return Response({'msg': '该批次名额已满'}, status=status.HTTP_400_BAD_REQUEST)
                     
                     serializer = ActivityApplySerializer(apply)
@@ -1652,29 +1703,49 @@ class HoursManagementViewSet(viewsets.ViewSet):
 
 # 报名管理视图
 class ApplicationManagementViewSet(viewsets.ViewSet):
-    permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
+    permission_classes = [permissions.IsAuthenticated, IsTeacher]
     
     # 查看活动报名列表
     @action(detail=False, methods=['get'])
     def activity_applies(self, request):
         activity_id = request.query_params.get('activity_id')
         status_filter = request.query_params.get('status')
+        college_filter = request.query_params.get('college')
+        credit_filter = request.query_params.get('credit')
         
-        if not activity_id:
-            return Response({'msg': '请选择活动'}, status=status.HTTP_400_BAD_REQUEST)
+        # 如果没有选择具体活动，则显示该教师创建的所有活动的报名
+        if activity_id:
+            try:
+                activity = Activity.objects.get(id=activity_id, creator=request.user)
+                applies = ActivityApply.objects.filter(batch__activity=activity)
+            except Activity.DoesNotExist:
+                return Response({'msg': '活动不存在'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            # 显示该教师创建的所有活动的报名
+            applies = ActivityApply.objects.filter(batch__activity__creator=request.user)
         
-        try:
-            activity = Activity.objects.get(id=activity_id, creator=request.user)
-        except Activity.DoesNotExist:
-            return Response({'msg': '活动不存在'}, status=status.HTTP_404_NOT_FOUND)
-        
-        applies = ActivityApply.objects.filter(batch__activity=activity)
-        
+        # 状态筛选
         if status_filter:
             applies = applies.filter(status=status_filter)
         
+        # 学院筛选
+        if college_filter:
+            applies = applies.filter(student__college=college_filter)
+        
+        # 信用等级筛选
+        if credit_filter:
+            if credit_filter == 'blacklist':
+                applies = applies.filter(student__is_blacklisted=True)
+            elif credit_filter == 'low_credit':
+                applies = applies.filter(student__credit_level__lt=3)
+            elif credit_filter == 'high_credit':
+                applies = applies.filter(student__credit_level__gte=3)
+        
         data = []
         for apply in applies.select_related('student', 'batch'):
+            # 检查学生是否有多次违约
+            violation_count = ViolationRecord.objects.filter(student=apply.student).count()
+            
             data.append({
                 'apply_id': apply.id,
                 'student_name': apply.student.username,
@@ -1684,7 +1755,10 @@ class ApplicationManagementViewSet(viewsets.ViewSet):
                 'phone': apply.student.phone,
                 'batch_name': apply.batch.batch_name,
                 'apply_time': apply.apply_time,
-                'status': apply.status
+                'status': apply.status,
+                'credit_level': apply.student.credit_level,
+                'is_blacklisted': apply.student.is_blacklisted,
+                'violation_count': violation_count
             })
         
         return Response(data)
@@ -1709,10 +1783,22 @@ class ApplicationManagementViewSet(viewsets.ViewSet):
                 
                 updated_count = 0
                 for apply in applies:
+                    old_status = apply.status
+                    
                     if action_type == 'approve':
                         apply.status = 'approved'
+                        # 如果是从待审核状态变为已通过，更新学生待参与活动数
+                        if old_status == 'pending':
+                            apply.student.pending_activities += 1
+                            apply.student.save()
                     elif action_type == 'reject':
                         apply.status = 'rejected'
+                        # 如果是从待审核状态变为已拒绝，不更新待参与活动数
+                        # 如果是从已通过状态变为已拒绝，需要减少待参与活动数
+                        if old_status == 'approved':
+                            apply.student.pending_activities = max(0, apply.student.pending_activities - 1)
+                            apply.student.save()
+                    
                     apply.save()
                     updated_count += 1
                 

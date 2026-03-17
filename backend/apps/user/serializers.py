@@ -41,7 +41,7 @@ class UserInfoSerializer(serializers.ModelSerializer):
     
     def get_pendingActivities(self, obj):
         from apps.activity.models import ActivityApply
-        return ActivityApply.objects.filter(student=obj, status='approved', check_out_time__isnull=True).count()
+        return ActivityApply.objects.filter(student=obj, status__in=['pending', 'approved'], check_out_time__isnull=True).count()
     
     def get_violationCount(self, obj):
         from apps.activity.models import ViolationRecord

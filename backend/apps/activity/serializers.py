@@ -27,26 +27,38 @@ class ActivitySerializer(serializers.ModelSerializer):
                  'batches', 'total_quota', 'total_apply_count')
         read_only_fields = ('id', 'creator', 'create_time', 'update_time')
 
-    def create(self, validated_data):
-        validated_data['creator'] = self.context['request'].user
-        return super().create(validated_data)
-
 # 活动列表序列化器（学生查看）
 class StudentActivitySerializer(serializers.ModelSerializer):
+    batches = ActivityBatchSerializer(many=True, read_only=True)
     total_quota = serializers.ReadOnlyField()
     total_apply_count = serializers.ReadOnlyField()
     
     class Meta:
         model = Activity
-        fields = ('id', 'name', 'type', 'organizer', 'address', 'status', 
-                 'total_quota', 'total_apply_count')
+        fields = ('id', 'name', 'type', 'organizer', 'address', 'description', 'training', 
+                 'support', 'notice', 'status', 'create_time', 'update_time',
+                 'batches', 'total_quota', 'total_apply_count')
+
+# 活动批次序列化器（包含活动信息）
+class ActivityBatchWithActivitySerializer(serializers.ModelSerializer):
+    remaining_quota = serializers.SerializerMethodField()
+    activity = StudentActivitySerializer(read_only=True)
+    
+    class Meta:
+        model = ActivityBatch
+        fields = ('id', 'batch_name', 'start_time', 'end_time', 'quota', 'apply_count', 'remaining_quota', 'activity')
+        read_only_fields = ('id', 'apply_count')
+    
+    def get_remaining_quota(self, obj):
+        return obj.quota - obj.apply_count
 
 # 报名记录序列化器
 class ActivityApplySerializer(serializers.ModelSerializer):
     activity_name = serializers.CharField(source='batch.activity.name', read_only=True)
     batch_name = serializers.CharField(source='batch.batch_name', read_only=True)
     student_name = serializers.CharField(source='student.username', read_only=True)
-    batch = ActivityBatchSerializer(read_only=True)
+    activity_id = serializers.IntegerField(source='batch.activity.id', read_only=True)
+    batch = ActivityBatchWithActivitySerializer(read_only=True)
     
     class Meta:
         model = ActivityApply

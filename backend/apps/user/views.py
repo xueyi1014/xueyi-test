@@ -68,25 +68,25 @@ class UserViewSet(viewsets.GenericViewSet):
         if user.role != 'student':
             return Response([])
 
-        # 获取最近 3 天内的待参与活动
-        three_days_later = timezone.now() + timedelta(days=3)
+        # 获取所有待参与的活动（包括待审核和已通过的）
         applies = ActivityApply.objects.filter(
             student=user,
-            status='approved'
+            status__in=['pending', 'approved']
         ).select_related('batch__activity')
 
         recent_activities = []
         for apply in applies:
             activity = apply.batch.activity
-            if activity.status == 'ongoing' and activity.start_time <= three_days_later:
-                recent_activities.append({
-                    'id': activity.id,
-                    'name': activity.name,
-                    'start_time': apply.batch.start_time,
-                    'end_time': apply.batch.end_time,
-                    'address': activity.address,
-                    'checked_in': apply.check_in_time is not None
-                })
+            # 添加所有待参与的活动，不限制时间
+            recent_activities.append({
+                'id': activity.id,
+                'name': activity.name,
+                'start_time': apply.batch.start_time,
+                'end_time': apply.batch.end_time,
+                'address': activity.address,
+                'checked_in': apply.check_in_time is not None,
+                'status': apply.status
+            })
 
         return Response(recent_activities[:5])
 

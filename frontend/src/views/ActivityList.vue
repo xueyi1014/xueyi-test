@@ -87,7 +87,7 @@
             <el-button v-if="userRole === 'student'" type="primary" size="small" @click="showApplyDialog(row)">
               报名
             </el-button>
-            <el-button type="info" size="small" @click="viewDetail(row.id)">
+            <el-button type="info" size="small" @click="viewDetail(row)">
               查看详情
             </el-button>
             <template v-if="userRole === 'teacher'">
@@ -130,6 +130,38 @@
           </template>
         </el-table-column>
       </el-table>
+    </el-dialog>
+
+    <!-- 活动详情对话框 -->
+    <el-dialog v-model="showDetailDialogVisible" title="活动详情" width="800px">
+      <el-descriptions :column="2" border v-if="selectedActivity">
+        <el-descriptions-item label="活动名称">{{ selectedActivity.name }}</el-descriptions-item>
+        <el-descriptions-item label="活动类型">{{ getTypeText(selectedActivity.type) }}</el-descriptions-item>
+        <el-descriptions-item label="主办方">{{ selectedActivity.organizer }}</el-descriptions-item>
+        <el-descriptions-item label="活动地点">{{ selectedActivity.address }}</el-descriptions-item>
+        <el-descriptions-item label="总名额">{{ selectedActivity.total_quota || 0 }}</el-descriptions-item>
+        <el-descriptions-item label="已报名">{{ selectedActivity.total_apply_count || 0 }}</el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="getStatusType(selectedActivity.status)">{{ getStatusText(selectedActivity.status) }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="工作内容" :span="2">{{ selectedActivity.description || '暂无描述' }}</el-descriptions-item>
+        <el-descriptions-item label="培训说明" :span="2">{{ selectedActivity.training || '无' }}</el-descriptions-item>
+        <el-descriptions-item label="活动保障" :span="2">{{ selectedActivity.support || '无' }}</el-descriptions-item>
+        <el-descriptions-item label="注意事项" :span="2">{{ selectedActivity.notice || '无' }}</el-descriptions-item>
+      </el-descriptions>
+      <el-divider>活动批次</el-divider>
+      <el-table :data="selectedActivity?.batches || []" stripe>
+        <el-table-column prop="batch_name" label="批次名称" />
+        <el-table-column label="时间段">
+          <template #default="{ row }">{{ formatTime(row.start_time) }} - {{ formatTime(row.end_time) }}</template>
+        </el-table-column>
+        <el-table-column label="名额">
+          <template #default="{ row }">{{ row.apply_count }}/{{ row.quota }}</template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="showDetailDialogVisible = false">关闭</el-button>
+      </template>
     </el-dialog>
 
     <!-- 发布活动对话框 -->
@@ -181,6 +213,7 @@ const filterDuration = ref('')
 const filterTimeRange = ref([])
 const showCreateDialog = ref(false)
 const showApplyDialogVisible = ref(false)
+const showDetailDialogVisible = ref(false)
 const selectedActivity = ref(null)
 const loading = ref(false)
 
@@ -273,6 +306,10 @@ const loadActivities = async () => {
     const res = await activityAPI.getList()
     // 处理分页数据
     activities.value = res.results || res
+    console.log('活动列表数据:', activities.value)
+    if (activities.value && activities.value.length > 0) {
+      console.log('第一个活动的批次数据:', activities.value[0].batches)
+    }
   } catch (error) {
     ElMessage.error('加载活动列表失败')
   } finally {
@@ -299,8 +336,9 @@ const confirmApply = async (batchId) => {
 }
 
 // 查看详情
-const viewDetail = (id) => {
-  router.push(`/activity/${id}`)
+const viewDetail = (activity) => {
+  selectedActivity.value = activity
+  showDetailDialogVisible.value = true
 }
 
 // 发布活动
