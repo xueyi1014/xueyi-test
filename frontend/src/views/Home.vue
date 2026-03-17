@@ -11,7 +11,7 @@
           <el-avatar icon="el-icon-user" size="small"></el-avatar>
           {{ username }}
         </span>
-        <el-button size="small" type="text" @click="logout">退出登录</el-button>
+        <el-button size="small" link type="primary" @click="logout">退出登录</el-button>
       </div>
     </el-header>
 
@@ -19,55 +19,47 @@
       <!-- 左侧菜单 -->
       <el-aside width="200px" class="aside">
         <el-menu
-          default-active="1-1"
+          :default-active="activeMenu"
           class="el-menu-vertical-demo"
           @select="handleMenuSelect"
         >
           <!-- 个人中心 -->
-          <el-submenu index="1">
-            <template slot="title"><i class="el-icon-user"></i><span>个人中心</span></template>
+          <el-sub-menu index="1">
+            <template #title><i class="el-icon-user"></i><span>个人中心</span></template>
             <el-menu-item index="1-1">基本信息</el-menu-item>
-          </el-submenu>
+          </el-sub-menu>
 
           <!-- 志愿活动（分角色） -->
-          <el-submenu index="2">
-            <template slot="title"><i class="el-icon-s-data"></i><span>志愿活动</span></template>
+          <!-- 志愿活动（分角色） -->
+          <el-sub-menu index="2">
+            <template #title><i class="el-icon-s-data"></i><span>志愿活动</span></template>
             <template v-if="userRole === 'student'">
               <el-menu-item index="2-1">活动列表</el-menu-item>
               <el-menu-item index="2-2">我的报名</el-menu-item>
-              <el-menu-item index="2-3">活动记录</el-menu-item>
+              <el-menu-item index="2-3">我的收藏</el-menu-item>
+              <el-menu-item index="2-4">签到打卡</el-menu-item>
             </template>
             <template v-if="userRole === 'teacher'">
               <el-menu-item index="2-1">活动管理</el-menu-item>
               <el-menu-item index="2-2">报名管理</el-menu-item>
+              <el-menu-item index="2-3">违规管理</el-menu-item>
             </template>
-          </el-submenu>
-
-          <!-- 考勤管理（分角色） -->
-          <el-submenu index="3">
-            <template slot="title"><i class="el-icon-time"></i><span>考勤管理</span></template>
-            <template v-if="userRole === 'student'">
-              <el-menu-item index="3-1">签到打卡</el-menu-item>
-              <el-menu-item index="3-2">我的考勤记录</el-menu-item>
-            </template>
-            <template v-if="userRole === 'teacher'">
-              <el-menu-item index="3-1">活动考勤管理</el-menu-item>
-              <el-menu-item index="3-2">考勤导出</el-menu-item>
-            </template>
-          </el-submenu>
+          </el-sub-menu>
 
           <!-- 统计分析（分角色） -->
-          <el-submenu index="5">
-            <template slot="title"><i class="el-icon-chart-pie"></i><span>统计分析</span></template>
+          <el-sub-menu index="3">
+            <template #title><i class="el-icon-chart-pie"></i><span>统计分析</span></template>
             <template v-if="userRole === 'student'">
-              <el-menu-item index="5-1">我的时长统计</el-menu-item>
-              <el-menu-item index="5-2">参与活动统计</el-menu-item>
+              <el-menu-item index="3-1">我的时长统计</el-menu-item>
+              <el-menu-item index="3-2">违规与申诉</el-menu-item>
             </template>
             <template v-if="userRole === 'teacher'">
-              <el-menu-item index="5-1">全院时长统计</el-menu-item>
-              <el-menu-item index="5-2">活动参与率统计</el-menu-item>
+              <el-menu-item index="3-1">全院时长统计</el-menu-item>
+              <el-menu-item index="3-2">活动参与率统计</el-menu-item>
+              <el-menu-item index="3-3">时长导出</el-menu-item>
+              <el-menu-item index="3-4">海报生成</el-menu-item>
             </template>
-          </el-submenu>
+          </el-sub-menu>
         </el-menu>
       </el-aside>
 
@@ -91,7 +83,7 @@
                   {{ userInfo.totalHours || 0 }} 小时
                 </el-descriptions-item>
                 <el-descriptions-item label="负责班级" v-if="userRole === 'teacher'">
-                  {{ userInfo.class || '暂无' }}
+                  {{ userInfo.classField || '暂无' }}
                 </el-descriptions-item>
               </el-descriptions>
             </el-card>
@@ -100,45 +92,75 @@
           <!-- 2. 学生-活动列表 -->
           <div v-if="activeMenu === '2-1' && userRole === 'student'">
             <el-card title="志愿活动列表">
-              <el-input placeholder="搜索活动名称" style="width: 300px; margin-bottom: 20px;"></el-input>
-              <el-table :data="studentActivityList" border>
-                <el-table-column prop="name" label="活动名称" />
-                <el-table-column prop="time" label="活动时间" />
-                <el-table-column prop="address" label="活动地点" />
-                <el-table-column prop="quota" label="剩余名额" />
-                <el-table-column label="操作">
-                  <template #default="scope">
-                    <el-button type="primary" size="mini" @click="applyActivity(scope.row)">报名</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
+              <el-button type="primary" @click="$router.push('/activities')">查看所有活动</el-button>
+              <p style="margin-top: 20px; color: #666;">点击按钮查看所有可报名的志愿活动</p>
             </el-card>
           </div>
 
-          <!-- 3. 老师-活动管理 -->
+          <!-- 2. 老师-活动管理 -->
           <div v-if="activeMenu === '2-1' && userRole === 'teacher'">
             <el-card title="活动管理">
-              <el-button type="primary" style="margin-bottom: 20px;">发布新活动</el-button>
-              <el-table :data="teacherActivityList" border>
-                <el-table-column prop="name" label="活动名称" />
-                <el-table-column prop="time" label="活动时间" />
-                <el-table-column prop="address" label="活动地点" />
-                <el-table-column prop="applyCount" label="报名人数" />
-                <el-table-column label="操作">
-                  <template #default="scope">
-                    <el-button size="mini">编辑</el-button>
-                    <el-button size="mini" type="danger">删除</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
+              <el-button type="primary" @click="showCreateDialog = true">发布新活动</el-button>
+              <p style="margin-top: 20px; color: #666;">点击按钮发布新的志愿活动</p>
             </el-card>
           </div>
 
-          <!-- 4. 其他页面占位 -->
-          <div v-else-if="activeMenu !== '1-1'">
-            <el-card>
-              <h3>{{ currentMenuName }}</h3>
-              <p>该模块功能正在开发中...</p>
+          <!-- 2. 学生-我的报名 -->
+          <div v-if="activeMenu === '2-2' && userRole === 'student'">
+            <el-card title="我的报名记录">
+              <el-button type="primary" @click="$router.push('/activities')">查看我的报名</el-button>
+              <p style="margin-top: 20px; color: #666;">点击按钮查看您的报名记录</p>
+            </el-card>
+          </div>
+
+          <!-- 2. 老师-报名管理 -->
+          <div v-if="activeMenu === '2-2' && userRole === 'teacher'">
+            <el-card title="报名管理">
+              <p style="color: #666;">管理学生报名申请</p>
+            </el-card>
+          </div>
+
+          <!-- 2. 学生-签到打卡 -->
+          <div v-if="activeMenu === '2-3' && userRole === 'student'">
+            <el-card title="签到打卡">
+              <el-button type="primary" @click="$router.push('/checkin')">前往签到</el-button>
+              <p style="margin-top: 20px; color: #666;">点击按钮进行活动签到</p>
+            </el-card>
+          </div>
+
+          <!-- 2. 老师-违规管理 -->
+          <div v-if="activeMenu === '2-3' && userRole === 'teacher'">
+            <el-card title="违规管理">
+              <p style="color: #666;">管理学生违规记录</p>
+            </el-card>
+          </div>
+
+          <!-- 3. 学生-时长统计 -->
+          <div v-if="activeMenu === '3-1' && userRole === 'student'">
+            <el-card title="我的时长统计">
+              <el-button type="primary" @click="$router.push('/stats')">查看详细统计</el-button>
+              <p style="margin-top: 20px; color: #666;">点击按钮查看您的志愿时长统计</p>
+            </el-card>
+          </div>
+
+          <!-- 3. 老师-全院时长统计 -->
+          <div v-if="activeMenu === '3-1' && userRole === 'teacher'">
+            <el-card title="全院时长统计">
+              <p style="color: #666;">查看全院学生志愿时长统计</p>
+            </el-card>
+          </div>
+
+          <!-- 3. 学生-违规记录 -->
+          <div v-if="activeMenu === '3-2' && userRole === 'student'">
+            <el-card title="违规记录">
+              <p style="color: #666;">查看您的违规记录</p>
+            </el-card>
+          </div>
+
+          <!-- 3. 老师-活动参与率统计 -->
+          <div v-if="activeMenu === '3-2' && userRole === 'teacher'">
+            <el-card title="活动参与率统计">
+              <p style="color: #666;">查看活动参与率统计</p>
             </el-card>
           </div>
         </div>
@@ -151,31 +173,21 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
-import request from '@/utils/request'
+import { userAPI } from '@/api'
 
 const router = useRouter()
 const username = ref(localStorage.getItem('username') || '未知用户')
 const userRole = ref(localStorage.getItem('userRole') || 'student')
 const activeMenu = ref('1-1')
 const breadcrumb = ref(['个人中心', '基本信息'])
-const currentMenuName = ref('基本信息')
+const showCreateDialog = ref(false)
 
 const userInfo = reactive({
   idNumber: '',
   phone: '',
   totalHours: 0,
-  class: ''
+  classField: ''
 })
-
-// 模拟数据
-const studentActivityList = ref([
-  { name: '校园清洁志愿活动', time: '2026-04-01 09:00', address: '学校操场', quota: 15 },
-  { name: '社区敬老服务', time: '2026-04-05 14:00', address: '幸福社区', quota: 8 }
-])
-const teacherActivityList = ref([
-  { name: '校园清洁志愿活动', time: '2026-04-01 09:00', address: '学校操场', applyCount: 25 },
-  { name: '社区敬老服务', time: '2026-04-05 14:00', address: '幸福社区', applyCount: 12 }
-])
 
 // 菜单选择逻辑
 const handleMenuSelect = (key) => {
@@ -184,13 +196,10 @@ const handleMenuSelect = (key) => {
     '1-1': { name: '基本信息', breadcrumb: ['个人中心', '基本信息'] },
     '2-1': { name: userRole.value === 'student' ? '活动列表' : '活动管理', breadcrumb: ['志愿活动', userRole.value === 'student' ? '活动列表' : '活动管理'] },
     '2-2': { name: userRole.value === 'student' ? '我的报名' : '报名管理', breadcrumb: ['志愿活动', userRole.value === 'student' ? '我的报名' : '报名管理'] },
-    '2-3': { name: '活动记录', breadcrumb: ['志愿活动', '活动记录'] },
-    '3-1': { name: userRole.value === 'student' ? '签到打卡' : '活动考勤管理', breadcrumb: ['考勤管理', userRole.value === 'student' ? '签到打卡' : '活动考勤管理'] },
-    '3-2': { name: userRole.value === 'student' ? '我的考勤记录' : '考勤导出', breadcrumb: ['考勤管理', userRole.value === 'student' ? '我的考勤记录' : '考勤导出'] },
-    '5-1': { name: userRole.value === 'student' ? '我的时长统计' : '全院时长统计', breadcrumb: ['统计分析', userRole.value === 'student' ? '我的时长统计' : '全院时长统计'] },
-    '5-2': { name: userRole.value === 'student' ? '参与活动统计' : '活动参与率统计', breadcrumb: ['统计分析', userRole.value === 'student' ? '参与活动统计' : '活动参与率统计'] }
+    '2-3': { name: userRole.value === 'student' ? '签到打卡' : '违规管理', breadcrumb: ['志愿活动', userRole.value === 'student' ? '签到打卡' : '违规管理'] },
+    '3-1': { name: userRole.value === 'student' ? '我的时长统计' : '全院时长统计', breadcrumb: ['统计分析', userRole.value === 'student' ? '我的时长统计' : '全院时长统计'] },
+    '3-2': { name: userRole.value === 'student' ? '违规记录' : '活动参与率统计', breadcrumb: ['统计分析', userRole.value === 'student' ? '违规记录' : '活动参与率统计'] }
   }
-  currentMenuName.value = menuMap[key].name
   breadcrumb.value = menuMap[key].breadcrumb
 }
 
@@ -201,18 +210,17 @@ const logout = () => {
   router.push('/')
 }
 
-// 报名活动
-const applyActivity = (row) => {
-  ElMessage.success(`已成功报名「${row.name}」！`)
-  row.quota -= 1
-}
-
 // 加载用户信息
 onMounted(async () => {
   try {
-    const res = await request.get('/api/user/info/')
+    console.log('开始获取用户信息...')
+    console.log('当前 token:', localStorage.getItem('token'))
+    const res = await userAPI.getInfo()
+    console.log('用户信息获取成功:', res)
     Object.assign(userInfo, res)
   } catch (err) {
+    console.error('获取用户信息失败详情:', err)
+    console.error('响应数据:', err.response?.data)
     ElMessage.error('获取用户信息失败')
   }
 })

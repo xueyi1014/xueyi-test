@@ -19,9 +19,14 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         return user
 
 class UserInfoSerializer(serializers.ModelSerializer):
+    idNumber = serializers.CharField(source='id_number', read_only=True)
+    phone = serializers.CharField(allow_blank=True, allow_null=True)
+    totalHours = serializers.IntegerField(source='total_hours', read_only=True)
+    classField = serializers.CharField(source='class_name', read_only=True, allow_blank=True, allow_null=True)
+    
     class Meta:
         model = User
-        fields = ('username', 'role', 'id_number', 'phone', 'total_hours', 'class_name')
+        fields = ('username', 'role', 'idNumber', 'phone', 'totalHours', 'classField')
 
 class ChangePasswordSerializer(serializers.Serializer):
     oldPwd = serializers.CharField(write_only=True, required=True)

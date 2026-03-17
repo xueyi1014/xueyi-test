@@ -131,8 +131,27 @@ const register = async () => {
       router.push('/')
     }, 1500)
   } catch (err) {
-    // 错误提示
-    const errorMsg = err.response?.data?.msg || '注册失败，请稍后重试'
+    console.error('注册错误详情:', err)
+    console.error('响应数据:', err.response?.data)
+    let errorMsg = '注册失败，请稍后重试'
+    if (err.response?.data) {
+      const data = err.response.data
+      console.log('数据类型:', typeof data)
+      console.log('数据内容:', data)
+      if (typeof data === 'string') {
+        errorMsg = data
+      } else if (data.msg) {
+        errorMsg = data.msg
+      } else if (data.errors) {
+        errorMsg = JSON.stringify(data.errors)
+      } else {
+        const keys = Object.keys(data)
+        if (keys.length > 0) {
+          errorMsg = String(data[keys[0]])
+        }
+      }
+    }
+    console.log('最终错误信息:', errorMsg)
     ElMessage.error(errorMsg)
   }
 }
