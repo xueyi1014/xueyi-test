@@ -1,7 +1,8 @@
 from django.db import models
-from users.models import User
+# 关键修复：删除多余的backend前缀
+from user.models import User  # 原代码是 from backend.apps.user.models import User
 
-# 活动模型
+# 活动模型（适配activity APP）
 class Activity(models.Model):
     ACTIVITY_TYPE_CHOICES = (
         ('campus', '校园内'),

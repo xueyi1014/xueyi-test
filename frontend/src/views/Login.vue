@@ -34,11 +34,13 @@
               />
             </el-form-item>
 
+            <!-- 登录按钮 -->
             <el-form-item>
               <el-button type="primary" native-type="submit" block>登录</el-button>
             </el-form-item>
           </el-form>
 
+          <!-- 跳转注册 -->
           <div class="register-link" @click="$router.push('/register')">
             没有账号？立即注册
           </div>
@@ -50,14 +52,22 @@
 
 <script setup>
 import { ref, reactive } from 'vue'
-import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
+import request from '@/utils/request'
+
 const router = useRouter()
 
-const form = reactive({ username: '', password: '' })
+// 表单数据
+const form = reactive({
+  username: '',
+  password: ''
+})
+
+// 显示密码开关
 const isShowPwd = ref(false)
 
+// 登录方法
 const login = async () => {
   if (!form.username || !form.password) {
     ElMessage.warning('请输入用户名和密码！')
@@ -65,25 +75,23 @@ const login = async () => {
   }
 
   try {
-    // 调用登录接口，返回token+用户身份
-    const res = await axios.post('/api/user/login', form)
-    const { token, role, username } = res.data
-
+    const res = await request.post('/api/user/login/', form)
     // 存储登录信息
-    localStorage.token = token
-    localStorage.userRole = role
-    localStorage.username = username
+    localStorage.setItem('token', res.token)
+    localStorage.setItem('userRole', res.role)
+    localStorage.setItem('username', res.username)
 
     ElMessage.success('登录成功！')
     router.push('/home')
   } catch (err) {
-    ElMessage.error(err.response?.data?.msg || '账号或密码错误')
+    const errorMsg = err.response?.data?.msg || '账号或密码错误'
+    ElMessage.error(errorMsg)
   }
 }
 </script>
 
 <style scoped>
-/* 样式与注册页一致，略 */
+/* 样式和注册页一致 */
 .login-wrapper {
   width: 100vw;
   height: 100vh;
@@ -92,15 +100,17 @@ const login = async () => {
   align-items: center;
   justify-content: center;
 }
+
 .login-container {
   width: 900px;
   height: 500px;
-  background: #ffffff15;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 20px;
   display: flex;
   overflow: hidden;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
 }
+
 .left-box {
   flex: 1;
   display: flex;
@@ -108,17 +118,20 @@ const login = async () => {
   justify-content: center;
   padding: 40px;
 }
+
 .title-group h1 {
   font-size: 36px;
   color: #fff;
   margin: 0 0 10px 0;
   font-weight: 500;
 }
+
 .title-group p {
   font-size: 16px;
   color: rgba(255, 255, 255, 0.8);
   margin: 0;
 }
+
 .right-box {
   width: 400px;
   background: #fff;
@@ -126,9 +139,11 @@ const login = async () => {
   align-items: center;
   justify-content: center;
 }
+
 .login-card {
   width: 320px;
 }
+
 .login-card h2 {
   text-align: center;
   font-size: 24px;
@@ -136,6 +151,7 @@ const login = async () => {
   margin-bottom: 30px;
   color: #333;
 }
+
 .register-link {
   text-align: center;
   color: #1e73ff;

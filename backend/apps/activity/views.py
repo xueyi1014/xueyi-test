@@ -1,9 +1,9 @@
 from rest_framework import viewsets, status, permissions
 from rest_framework.response import Response
 from rest_framework.decorators import action
+# 导入activity APP的模型和序列化器
 from .models import Activity, ActivityApply
 from .serializers import ActivitySerializer, StudentActivitySerializer, ActivityApplySerializer
-from users.models import User
 
 # 权限：仅老师可发布/管理活动
 class IsTeacher(permissions.BasePermission):

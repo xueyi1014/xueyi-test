@@ -1,24 +1,21 @@
 import { createApp } from 'vue'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
+import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
-import router from './router/index.js'
-import axios from 'axios'
+import router from './router'
 
+// 创建应用实例
 const app = createApp(App)
 
-// 全局配置 axios
-app.config.globalProperties.$axios = axios
+// 注册所有Element Plus图标
+for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+  app.component(key, component)
+}
 
-// 请求拦截器：每次发请求自动带 token
-axios.interceptors.request.use(config => {
-  if (localStorage.token) {
-    config.headers.Authorization = `Bearer ${localStorage.token}`
-  }
-  config.baseURL = 'http://127.0.0.1:8000'
-  return config
-})
-
+// 使用插件
 app.use(ElementPlus)
 app.use(router)
+
+// 挂载应用
 app.mount('#app')

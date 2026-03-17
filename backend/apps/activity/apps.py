@@ -1,5 +1,6 @@
 from django.apps import AppConfig
 
-class ActivitiesConfig(AppConfig):
+class ActivityConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'activities'
+    # 关键：必须和目录名一致（activity）
+    name = 'activity'

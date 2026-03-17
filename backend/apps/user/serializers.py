@@ -1,17 +1,28 @@
 from rest_framework import serializers
+# 关键：导入user APP的User模型
 from .models import User
 
-class UserSerializer(serializers.ModelSerializer):
+class UserRegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id','username','role','student_id','phone']
+        fields = ('username', 'password', 'role', 'id_number', 'phone')
+        extra_kwargs = {'password': {'write_only': True}}
 
-class RegisterSerializer(serializers.ModelSerializer):
+    def create(self, validated_data):
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            password=validated_data['password'],
+            role=validated_data['role'],
+            id_number=validated_data.get('id_number'),
+            phone=validated_data.get('phone')
+        )
+        return user
+
+class UserInfoSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['username','password','student_id','phone','role']
-    def create(self, validated_data):
-        user = User.objects.create(**validated_data)
-        user.set_password(validated_data['password'])
-        user.save()
-        return user
+        fields = ('username', 'role', 'id_number', 'phone', 'total_hours', 'class_name')
+
+class ChangePasswordSerializer(serializers.Serializer):
+    oldPwd = serializers.CharField(write_only=True, required=True)
+    newPwd = serializers.CharField(write_only=True, required=True)

@@ -12,9 +12,10 @@
         <div class="login-card">
           <h2>账号注册</h2>
 
+          <!-- 表单提交绑定 -->
           <el-form @submit.prevent="register" label-width="80px">
-            <!-- 身份选择（必选） -->
-            <el-form-item label="身份" prop="role">
+            <!-- 身份选择 -->
+            <el-form-item label="身份">
               <el-radio-group v-model="form.role">
                 <el-radio label="student">学生</el-radio>
                 <el-radio label="teacher">老师</el-radio>
@@ -22,7 +23,7 @@
             </el-form-item>
 
             <!-- 用户名 -->
-            <el-form-item label="用户名" prop="username">
+            <el-form-item label="用户名">
               <el-input
                 v-model="form.username"
                 placeholder="请输入用户名"
@@ -31,11 +32,11 @@
             </el-form-item>
 
             <!-- 密码 -->
-            <el-form-item label="密码" prop="password">
+            <el-form-item label="密码">
               <el-input
                 v-model="form.password"
                 :type="isShowPwd ? 'text' : 'password'"
-                placeholder="请输入密码"
+                placeholder="请输入密码（至少6位）"
                 prefix-icon="el-icon-lock"
                 suffix-icon="el-icon-view"
                 @clickSuffix="isShowPwd = !isShowPwd"
@@ -43,7 +44,7 @@
             </el-form-item>
 
             <!-- 学号/工号 -->
-            <el-form-item :label="form.role === 'student' ? '学号' : '工号'" prop="idNumber">
+            <el-form-item :label="form.role === 'student' ? '学号' : '工号'">
               <el-input
                 v-model="form.idNumber"
                 :placeholder="form.role === 'student' ? '请输入学号' : '请输入工号'"
@@ -52,7 +53,7 @@
             </el-form-item>
 
             <!-- 手机号 -->
-            <el-form-item label="手机号" prop="phone">
+            <el-form-item label="手机号">
               <el-input
                 v-model="form.phone"
                 placeholder="请输入手机号"
@@ -60,11 +61,13 @@
               />
             </el-form-item>
 
+            <!-- 注册按钮 -->
             <el-form-item>
               <el-button type="primary" native-type="submit" block>注册</el-button>
             </el-form-item>
           </el-form>
 
+          <!-- 跳转登录 -->
           <div class="register-link" @click="$router.push('/')">
             已有账号？返回登录
           </div>
@@ -76,32 +79,38 @@
 
 <script setup>
 import { ref, reactive } from 'vue'
-import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
+// 导入封装的request工具
+import request from '@/utils/request'
+
 const router = useRouter()
 
+// 表单数据
 const form = reactive({
-  role: '', // student/teacher
-  username: '',
-  password: '',
-  idNumber: '',
-  phone: ''
+  role: '',        // student/teacher
+  username: '',    // 用户名
+  password: '',    // 密码
+  idNumber: '',    // 学号/工号
+  phone: ''        // 手机号
 })
+
+// 显示密码开关
 const isShowPwd = ref(false)
 
+// 注册方法（简化验证，确保能请求）
 const register = async () => {
-  // 验证必填项
+  // 基础验证
   if (!form.role) {
     ElMessage.warning('请选择身份！')
     return
   }
-  if (!form.username || form.username.length < 4) {
-    ElMessage.warning('用户名至少4位！')
+  if (!form.username || form.username.length < 2) {
+    ElMessage.warning('用户名至少2位！')
     return
   }
-  if (!form.password || !/^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{8,16}$/.test(form.password)) {
-    ElMessage.warning('密码必须8-16位，包含大小写、数字、特殊符号！')
+  if (!form.password || form.password.length < 6) {
+    ElMessage.warning('密码至少6位！')
     return
   }
   if (!form.idNumber) {
@@ -109,17 +118,22 @@ const register = async () => {
     return
   }
   if (!/^1\d{10}$/.test(form.phone)) {
-    ElMessage.warning('请输入正确的手机号！')
+    ElMessage.warning('请输入正确的手机号（11位）！')
     return
   }
 
   try {
-    // 调用注册接口
-    const res = await axios.post('/api/user/register', form)
-    ElMessage.success('注册成功！请登录')
-    router.push('/')
+    // 发送注册请求（兼容带/路径）
+    const res = await request.post('/api/user/register/', form)
+    ElMessage.success('注册成功！即将跳转到登录页')
+    // 延迟跳转
+    setTimeout(() => {
+      router.push('/')
+    }, 1500)
   } catch (err) {
-    ElMessage.error(err.response?.data?.msg || '注册失败')
+    // 错误提示
+    const errorMsg = err.response?.data?.msg || '注册失败，请稍后重试'
+    ElMessage.error(errorMsg)
   }
 }
 </script>
@@ -136,7 +150,7 @@ const register = async () => {
 .login-container {
   width: 900px;
   height: 550px;
-  background: #ffffff15;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 20px;
   display: flex;
   overflow: hidden;

@@ -3,7 +3,7 @@
 </template>
 
 <script setup>
-// 根组件仅挂载路由
+// 仅挂载路由，无其他逻辑
 </script>
 
 <style>
