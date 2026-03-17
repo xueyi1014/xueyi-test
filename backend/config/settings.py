@@ -6,9 +6,6 @@ from datetime import timedelta
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# 关键修复：添加apps目录到Python路径（让Django找到apps下的APP）
-sys.path.insert(0, os.path.join(BASE_DIR, 'apps'))
-
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-abc1234567890!@#$%^&*()_+-=[]{}|;:,.<>?'
 
@@ -30,9 +27,9 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',  # 跨域必须
-    # 自定义APP（匹配你的目录名：user/activity）
-    'user',          # 对应apps/user
-    'activity',      # 对应apps/activity
+    # 自定义APP（使用完整路径）
+    'apps.user',          # 对应apps/user
+    'apps.activity',      # 对应apps/activity
 ]
 
 MIDDLEWARE = [

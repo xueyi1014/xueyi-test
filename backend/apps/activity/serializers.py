@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import Activity, ActivityBatch, ActivityApply, CheckinRecord, ViolationRecord, ActivityFavorite, StudentUnavailableTime, BlacklistAppeal
-from user.models import User
+from apps.user.models import User
 
 # 活动批次序列化器
 class ActivityBatchSerializer(serializers.ModelSerializer):
@@ -46,12 +46,13 @@ class ActivityApplySerializer(serializers.ModelSerializer):
     activity_name = serializers.CharField(source='batch.activity.name', read_only=True)
     batch_name = serializers.CharField(source='batch.batch_name', read_only=True)
     student_name = serializers.CharField(source='student.username', read_only=True)
+    batch = ActivityBatchSerializer(read_only=True)
     
     class Meta:
         model = ActivityApply
         fields = ('id', 'batch', 'activity_name', 'batch_name', 'student', 'student_name', 
-                 'apply_time', 'status')
-        read_only_fields = ('id', 'apply_time', 'student')
+                 'apply_time', 'status', 'check_in_time', 'check_out_time', 'hours', 'activity_id')
+        read_only_fields = ('id', 'apply_time', 'student', 'check_in_time', 'check_out_time', 'hours')
 
 # 签到记录序列化器
 class CheckinRecordSerializer(serializers.ModelSerializer):
@@ -60,20 +61,23 @@ class CheckinRecordSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = CheckinRecord
-        fields = ('id', 'apply', 'activity_name', 'student_name', 'checkin_time', 
+        fields = ('id', 'apply', 'activity_name', 'student_name', 'checkin_time', 'checkout_time',
                  'checkin_code', 'hours')
-        read_only_fields = ('id', 'checkin_time')
+        read_only_fields = ('id', 'checkin_time', 'checkout_time')
 
 # 活动收藏序列化器
 class ActivityFavoriteSerializer(serializers.ModelSerializer):
     activity_name = serializers.CharField(source='activity.name', read_only=True)
     activity_type = serializers.CharField(source='activity.type', read_only=True)
     activity_status = serializers.CharField(source='activity.status', read_only=True)
+    activity = StudentActivitySerializer(read_only=True)
+    favorite_time = serializers.DateTimeField(read_only=True)
     
     class Meta:
         model = ActivityFavorite
-        fields = ('id', 'student', 'activity', 'activity_name', 'activity_type', 'activity_status', 'create_time')
-        read_only_fields = ('id', 'create_time')
+        fields = ('id', 'student', 'activity', 'activity_name', 'activity_type', 'activity_status', 
+                 'create_time', 'favorite_time', 'total_quota', 'total_apply_count')
+        read_only_fields = ('id', 'create_time', 'favorite_time')
 
 # 学生不可用时间序列化器
 class StudentUnavailableTimeSerializer(serializers.ModelSerializer):

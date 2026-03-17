@@ -9,7 +9,15 @@ import HourStats from '../views/HourStats.vue'
 import UserCenter from '../views/UserCenter.vue'
 import MyApplies from '../views/MyApplies.vue'
 import MyFavorites from '../views/MyFavorites.vue'
-import AppealPage from '../views/AppealPage.vue'
+import Violations from '../views/Violations.vue'
+import PublishActivity from '../views/PublishActivity.vue'
+import ManageActivity from '../views/ManageActivity.vue'
+import ManageApplication from '../views/ManageApplication.vue'
+import ManageCheckin from '../views/ManageCheckin.vue'
+import ManageHours from '../views/ManageHours.vue'
+import ManageAppeal from '../views/ManageAppeal.vue'
+import Statistics from '../views/Statistics.vue'
+import Poster from '../views/Poster.vue'
 import TeacherHome from '../views/teacher/TeacherHome.vue'
 import TeacherActivity from '../views/teacher/TeacherActivity.vue'
 import TeacherApplies from '../views/teacher/TeacherApplies.vue'
@@ -108,9 +116,57 @@ const routes = [
   },
   {
     path: '/appeal',
-    name: 'AppealPage',
-    component: AppealPage,
+    name: 'Violations',
+    component: Violations,
     beforeEnter: [requireAuth, requireStudent]
+  },
+  {
+    path: '/publish-activity',
+    name: 'PublishActivity',
+    component: PublishActivity,
+    beforeEnter: [requireAuth, requireTeacher]
+  },
+  {
+    path: '/manage-activity',
+    name: 'ManageActivity',
+    component: ManageActivity,
+    beforeEnter: [requireAuth, requireTeacher]
+  },
+  {
+    path: '/manage-application',
+    name: 'ManageApplication',
+    component: ManageApplication,
+    beforeEnter: [requireAuth, requireTeacher]
+  },
+  {
+    path: '/manage-checkin',
+    name: 'ManageCheckin',
+    component: ManageCheckin,
+    beforeEnter: [requireAuth, requireTeacher]
+  },
+  {
+    path: '/manage-hours',
+    name: 'ManageHours',
+    component: ManageHours,
+    beforeEnter: [requireAuth, requireTeacher]
+  },
+  {
+    path: '/manage-appeal',
+    name: 'ManageAppeal',
+    component: ManageAppeal,
+    beforeEnter: [requireAuth, requireTeacher]
+  },
+  {
+    path: '/statistics',
+    name: 'Statistics',
+    component: Statistics,
+    beforeEnter: [requireAuth, requireTeacher]
+  },
+  {
+    path: '/poster',
+    name: 'Poster',
+    component: Poster,
+    beforeEnter: [requireAuth, requireTeacher]
   },
   {
     path: '/teacher',

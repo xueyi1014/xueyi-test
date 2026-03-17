@@ -2,6 +2,7 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.utils import timezone
+from django.db import models
 import random
 import string
 from .models import Activity, ActivityBatch, ActivityApply, CheckinRecord, ViolationRecord, ActivityFavorite, StudentUnavailableTime, BlacklistAppeal, ActivityRating, AttendanceRecord
@@ -152,6 +153,41 @@ class ActivityViewSet(viewsets.ModelViewSet):
         serializer = ActivityApplySerializer(applies, many=True)
         return Response(serializer.data)
 
+    # 取消报名 - DELETE /api/activity/cancel_apply/{id}/
+    @action(detail=False, methods=['delete'], url_path='cancel_apply/(?P<apply_id>[^/.]+)')
+    def cancel_apply(self, request, apply_id=None):
+        from django.db import transaction
+        
+        try:
+            with transaction.atomic():
+                # 获取报名记录
+                apply = ActivityApply.objects.get(id=apply_id, student=request.user)
+                
+                # 检查报名状态
+                if apply.status != 'pending':
+                    return Response({'msg': '只能取消待审核状态的报名'}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # 检查是否已签到
+                if hasattr(apply, 'checkin'):
+                    return Response({'msg': '已签到，无法取消报名'}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # 获取批次信息
+                batch = apply.batch
+                
+                # 删除报名记录
+                apply.delete()
+                
+                # 减少报名人数
+                batch.apply_count = max(0, batch.apply_count - 1)
+                batch.save()
+                
+                return Response({'msg': '取消报名成功'})
+                
+        except ActivityApply.DoesNotExist:
+            return Response({'msg': '报名记录不存在'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'msg': '取消报名失败，请稍后重试'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     # 老师查看活动报名列表 - GET /api/activity/{id}/applies/
     @action(detail=True, methods=['get'])
     def applies(self, request, pk=None):
@@ -253,10 +289,11 @@ class ActivityViewSet(viewsets.ModelViewSet):
                         attendance_status='normal'
                     )
                     
-                    # 更新学生总时长
-                    student = apply.student
-                    student.total_hours += duration_hours
-                    student.save()
+                    # 更新学生总时长（使用原子操作）
+                    from django.db.models import F
+                    User.objects.filter(id=apply.student_id).update(
+                        total_hours=F('total_hours') + duration_hours
+                    )
                     
                     # 返回简化响应
                     return Response({
@@ -275,6 +312,78 @@ class ActivityViewSet(viewsets.ModelViewSet):
                     return Response({'msg': '签到失败，请稍后重试'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         return Response({'msg': '签到失败，请稍后重试'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # 签退 - POST /api/activity/{id}/checkout/
+    @action(detail=True, methods=['post'])
+    def checkout(self, request, pk=None):
+        from django.db import transaction
+        from django.utils import timezone
+        
+        activity = self.get_object()
+        apply_id = request.data.get('apply_id')
+        
+        if not apply_id:
+            return Response({'msg': '请选择报名记录'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            with transaction.atomic():
+                # 获取报名记录（带锁）
+                apply = ActivityApply.objects.select_for_update().get(
+                    id=apply_id,
+                    batch__activity=activity,
+                    student=request.user
+                )
+                
+                # 检查是否已签到
+                if not hasattr(apply, 'checkin'):
+                    return Response({'msg': '尚未签到，无法签退'}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # 检查是否已签退
+                if apply.check_out_time:
+                    return Response({'msg': '已签退'}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # 更新签到记录
+                checkin_record = apply.checkin
+                now = timezone.now()
+                
+                # 计算实际时长（小时）
+                actual_hours = (now - checkin_record.checkin_time).total_seconds() / 3600
+                
+                # 更新签到记录
+                checkin_record.checkout_time = now
+                checkin_record.hours = actual_hours
+                checkin_record.save()
+                
+                # 更新报名记录
+                apply.check_out_time = now
+                apply.hours = actual_hours
+                apply.save()
+                
+                # 更新考勤记录
+                try:
+                    attendance_record = AttendanceRecord.objects.get(apply=apply)
+                    attendance_record.checkout_time = now
+                    attendance_record.actual_hours = actual_hours
+                    attendance_record.save()
+                except AttendanceRecord.DoesNotExist:
+                    pass
+                
+                # 更新学生总时长（减去之前预估的时长，加上实际时长）
+                from django.db.models import F
+                User.objects.filter(id=apply.student_id).update(
+                    total_hours=F('total_hours') - checkin_record.hours + actual_hours
+                )
+                
+                return Response({
+                    'msg': '签退成功',
+                    'checkout_time': now.strftime('%Y-%m-%d %H:%M:%S'),
+                    'actual_hours': actual_hours
+                })
+                
+        except ActivityApply.DoesNotExist:
+            return Response({'msg': '报名记录不存在'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'msg': '签退失败，请稍后重试'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     # 批量签到 - POST /api/activity/{id}/batch_checkin/
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated(), IsTeacher()])
@@ -319,9 +428,11 @@ class ActivityViewSet(viewsets.ModelViewSet):
                             attendance_status='normal'
                         )
                         
-                        # 更新学生总时长
-                        apply.student.total_hours += apply.batch.duration_hours
-                        apply.student.save()
+                        # 更新学生总时长（使用原子操作）
+                        from django.db.models import F
+                        User.objects.filter(id=apply.student_id).update(
+                            total_hours=F('total_hours') + apply.batch.duration_hours
+                        )
                         
                         success_count += 1
                         
@@ -363,6 +474,13 @@ class ActivityViewSet(viewsets.ModelViewSet):
         activity = self.get_object()
         is_favorite = ActivityFavorite.objects.filter(student=request.user, activity=activity).exists()
         return Response({'is_favorite': is_favorite})
+
+    # 获取我的收藏列表 - GET /api/activity/my_favorites/
+    @action(detail=False, methods=['get'])
+    def my_favorites(self, request):
+        favorites = ActivityFavorite.objects.filter(student=request.user).select_related('activity')
+        serializer = ActivityFavoriteSerializer(favorites, many=True)
+        return Response(serializer.data)
 
     # 检查时间冲突 - POST /api/activity/{id}/check_conflict/
     @action(detail=True, methods=['post'])
@@ -671,6 +789,11 @@ class ViolationViewSet(viewsets.ModelViewSet):
     serializer_class = ViolationRecordSerializer
     permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
     
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+    
     def perform_create(self, serializer):
         # 设置封禁结束时间
         ban_days = serializer.validated_data.get('ban_days', 0)
@@ -840,7 +963,7 @@ class ExportViewSet(viewsets.ViewSet):
                 '姓名': student.username,
                 '学号': student.id_number or '',
                 '学院': student.college or '',
-                '班级': student.class_field or '',
+                '班级': student.class_name or '',
                 '活动名称': activity.name,
                 '活动时间': f'{batch.start_time} - {batch.end_time}',
                 '志愿时长': record.hours,
@@ -1078,7 +1201,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 'student_name': record.student.username,
                 'student_id': record.student.id_number,
                 'college': record.student.college,
-                'class_field': record.student.class_field,
+                'class_name': record.student.class_name,
                 'batch_name': record.batch.batch_name,
                 'checkin_time': record.checkin_time,
                 'checkout_time': record.checkout_time,
@@ -1196,3 +1319,601 @@ class PosterViewSet(viewsets.ViewSet):
         response['Content-Disposition'] = f'attachment; filename={filename}'
         
         return response
+
+# 统计分析视图
+class StatisticsViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
+    
+    # 全院时长统计
+    @action(detail=False, methods=['get'])
+    def hours_stats(self, request):
+        from django.db.models import Sum, Count, Q, Value
+        from django.db.models.functions import Coalesce
+        from django.utils import timezone
+        from datetime import datetime, timedelta
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # 获取筛选条件
+            month = request.query_params.get('month')
+            year = request.query_params.get('year')
+            
+            logger.info(f"Hours stats request - month: {month}, year: {year}")
+            
+            # 构建查询
+            queryset = ActivityApply.objects.filter(status='approved', check_out_time__isnull=False)
+            
+            if month:
+                queryset = queryset.filter(check_out_time__month=month)
+            
+            if year:
+                queryset = queryset.filter(check_out_time__year=year)
+            
+            logger.info(f"Queryset count: {queryset.count()}")
+            
+            # 按学院统计
+            college_stats = []
+            college_data = queryset.values('student__college').annotate(
+                total_hours=Coalesce(Sum('hours'), 0),
+                student_count=Count('student', distinct=True),
+                activity_count=Count('id')
+            ).order_by('-total_hours')
+            
+            for item in college_data:
+                college_stats.append({
+                    'student__college': item.get('student__college') or '未知学院',
+                    'total_hours': float(item.get('total_hours') or 0),
+                    'student_count': item.get('student_count') or 0,
+                    'activity_count': item.get('activity_count') or 0
+                })
+            
+            # 按班级统计
+            class_stats = []
+            class_data = queryset.values('student__college', 'student__class_name').annotate(
+                total_hours=Coalesce(Sum('hours'), 0),
+                student_count=Count('student', distinct=True),
+                activity_count=Count('id')
+            ).order_by('-total_hours')
+            
+            for item in class_data:
+                class_stats.append({
+                    'student__college': item.get('student__college') or '未知学院',
+                    'student__class_name': item.get('student__class_name') or '未知班级',
+                    'total_hours': float(item.get('total_hours') or 0),
+                    'student_count': item.get('student_count') or 0,
+                    'activity_count': item.get('activity_count') or 0
+                })
+            
+            # 总时长趋势（近12个月）
+            monthly_trend = []
+            for i in range(12):
+                month_date = timezone.now() - timedelta(days=30*i)
+                month_start = month_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(seconds=1)
+                
+                hours = queryset.filter(
+                    check_out_time__gte=month_start,
+                    check_out_time__lte=month_end
+                ).aggregate(total=Sum('hours'))['total'] or 0
+                
+                monthly_trend.append({
+                    'month': month_start.strftime('%Y-%m'),
+                    'hours': round(float(hours), 2)
+                })
+            
+            monthly_trend.reverse()
+            
+            # 活跃度排名（学生）
+            student_ranking = []
+            student_data = queryset.values('student__username', 'student__id_number', 'student__college', 'student__class_name').annotate(
+                total_hours=Coalesce(Sum('hours'), 0),
+                activity_count=Count('id')
+            ).order_by('-total_hours')[:20]
+            
+            for item in student_data:
+                student_ranking.append({
+                    'student__username': item.get('student__username') or '未知',
+                    'student__id_number': item.get('student__id_number') or '',
+                    'student__college': item.get('student__college') or '未知学院',
+                    'student__class_name': item.get('student__class_name') or '未知班级',
+                    'total_hours': float(item.get('total_hours') or 0),
+                    'activity_count': item.get('activity_count') or 0
+                })
+            
+            result = {
+                'college_stats': college_stats,
+                'class_stats': class_stats,
+                'monthly_trend': monthly_trend,
+                'student_ranking': student_ranking
+            }
+            
+            logger.info(f"Hours stats result: {result}")
+            
+            return Response(result)
+        except Exception as e:
+            logger.error(f"Hours stats error: {str(e)}", exc_info=True)
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    # 活动参与率统计
+    @action(detail=False, methods=['get'])
+    def participation_stats(self, request):
+        from django.db.models import Count, Q
+        
+        activities = Activity.objects.filter(creator=request.user)
+        
+        stats = []
+        for activity in activities:
+            total_quota = activity.total_quota
+            apply_count = activity.total_apply_count
+            checkin_count = ActivityApply.objects.filter(
+                batch__activity=activity,
+                check_in_time__isnull=False
+            ).count()
+            
+            stats.append({
+                'activity_id': activity.id,
+                'activity_name': activity.name,
+                'total_quota': total_quota,
+                'apply_count': apply_count,
+                'checkin_count': checkin_count,
+                'apply_rate': round(apply_count / total_quota * 100, 2) if total_quota > 0 else 0,
+                'checkin_rate': round(checkin_count / apply_count * 100, 2) if apply_count > 0 else 0,
+                'status': activity.status
+            })
+        
+        return Response(stats)
+    
+    # 违规统计
+    @action(detail=False, methods=['get'])
+    def violation_stats(self, request):
+        from django.db.models import Count
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        # 获取筛选条件
+        month = request.query_params.get('month')
+        year = request.query_params.get('year')
+        
+        # 构建查询
+        queryset = ViolationRecord.objects.all()
+        
+        if month:
+            queryset = queryset.filter(create_time__month=month)
+        
+        if year:
+            queryset = queryset.filter(create_time__year=year)
+        
+        # 按类型统计
+        type_stats = queryset.values('violation_type').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        # 按月份统计（近12个月）
+        monthly_stats = []
+        for i in range(12):
+            month_date = timezone.now() - timedelta(days=30*i)
+            month_start = month_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(seconds=1)
+            
+            count = queryset.filter(
+                create_time__gte=month_start,
+                create_time__lte=month_end
+            ).count()
+            
+            monthly_stats.append({
+                'month': month_start.strftime('%Y-%m'),
+                'count': count
+            })
+        
+        monthly_stats.reverse()
+        
+        # 黑名单学生
+        blacklisted_users = User.objects.filter(is_blacklisted=True)
+        
+        return Response({
+            'type_stats': list(type_stats),
+            'monthly_stats': monthly_stats,
+            'blacklisted_count': blacklisted_users.count(),
+            'total_violations': queryset.count()
+        })
+
+# 时长管理视图
+class HoursManagementViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
+    
+    # 查看活动学生时长
+    @action(detail=False, methods=['get'])
+    def activity_hours(self, request):
+        activity_id = request.query_params.get('activity_id')
+        
+        if not activity_id:
+            return Response({'msg': '请选择活动'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            activity = Activity.objects.get(id=activity_id, creator=request.user)
+        except Activity.DoesNotExist:
+            return Response({'msg': '活动不存在'}, status=status.HTTP_404_NOT_FOUND)
+        
+        applies = ActivityApply.objects.filter(
+            batch__activity=activity,
+            status='approved'
+        ).select_related('student', 'batch')
+        
+        data = []
+        for apply in applies:
+            data.append({
+                'apply_id': apply.id,
+                'student_name': apply.student.username,
+                'student_id': apply.student.id_number,
+                'college': apply.student.college,
+                'class_name': apply.student.class_name,
+                'batch_name': apply.batch.batch_name,
+                'hours': apply.hours,
+                'checkin_status': '已签到' if apply.check_in_time else '未签到'
+            })
+        
+        return Response(data)
+    
+    # 修改学生时长
+    @action(detail=False, methods=['post'])
+    def update_hours(self, request):
+        apply_id = request.data.get('apply_id')
+        new_hours = request.data.get('hours')
+        reason = request.data.get('reason', '')
+        
+        if not apply_id or new_hours is None:
+            return Response({'msg': '参数不完整'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            apply = ActivityApply.objects.get(
+                id=apply_id,
+                batch__activity__creator=request.user
+            )
+            
+            # 更新时长
+            old_hours = apply.hours
+            apply.hours = new_hours
+            apply.save()
+            
+            # 更新签到记录
+            if hasattr(apply, 'checkin'):
+                apply.checkin.hours = new_hours
+                apply.checkin.save()
+            
+            # 更新学生总时长
+            from django.db.models import F
+            User.objects.filter(id=apply.student_id).update(
+                total_hours=F('total_hours') - old_hours + new_hours
+            )
+            
+            return Response({'msg': '时长修改成功'})
+            
+        except ActivityApply.DoesNotExist:
+            return Response({'msg': '报名记录不存在'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # 批量录入时长
+    @action(detail=False, methods=['post'])
+    def batch_update_hours(self, request):
+        from django.db import transaction
+        from django.db.models import Sum, F, Case, When, IntegerField
+        
+        activity_id = request.data.get('activity_id')
+        hours = request.data.get('hours')
+        reason = request.data.get('reason', '')
+        
+        if not activity_id or hours is None:
+            return Response({'msg': '参数不完整'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            with transaction.atomic():
+                activity = Activity.objects.select_for_update().get(id=activity_id, creator=request.user)
+                applies = ActivityApply.objects.filter(
+                    batch__activity=activity,
+                    status='approved'
+                ).select_related('student', 'checkin')
+                
+                if not applies.exists():
+                    return Response({'msg': '没有找到符合条件的报名记录'}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # 计算每个学生的时长差值
+                student_hours_diff = {}
+                for apply in applies:
+                    student_id = apply.student_id
+                    old_hours = apply.hours
+                    if student_id not in student_hours_diff:
+                        student_hours_diff[student_id] = 0
+                    student_hours_diff[student_id] += (hours - old_hours)
+                
+                # 批量更新ActivityApply的hours
+                updated_applies = applies.update(hours=hours)
+                
+                # 批量更新CheckinRecord的hours
+                CheckinRecord.objects.filter(
+                    apply__batch__activity=activity,
+                    apply__status='approved'
+                ).update(hours=hours)
+                
+                # 批量更新学生的总时长
+                for student_id, hours_diff in student_hours_diff.items():
+                    User.objects.filter(id=student_id).update(
+                        total_hours=F('total_hours') + hours_diff
+                    )
+                
+                return Response({
+                    'msg': f'批量更新成功，共更新{updated_applies}名学生'
+                })
+                
+        except Activity.DoesNotExist:
+            return Response({'msg': '活动不存在'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'msg': f'批量更新失败：{str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# 报名管理视图
+class ApplicationManagementViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
+    
+    # 查看活动报名列表
+    @action(detail=False, methods=['get'])
+    def activity_applies(self, request):
+        activity_id = request.query_params.get('activity_id')
+        status_filter = request.query_params.get('status')
+        
+        if not activity_id:
+            return Response({'msg': '请选择活动'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            activity = Activity.objects.get(id=activity_id, creator=request.user)
+        except Activity.DoesNotExist:
+            return Response({'msg': '活动不存在'}, status=status.HTTP_404_NOT_FOUND)
+        
+        applies = ActivityApply.objects.filter(batch__activity=activity)
+        
+        if status_filter:
+            applies = applies.filter(status=status_filter)
+        
+        data = []
+        for apply in applies.select_related('student', 'batch'):
+            data.append({
+                'apply_id': apply.id,
+                'student_name': apply.student.username,
+                'student_id': apply.student.id_number,
+                'college': apply.student.college,
+                'class_name': apply.student.class_name,
+                'phone': apply.student.phone,
+                'batch_name': apply.batch.batch_name,
+                'apply_time': apply.apply_time,
+                'status': apply.status
+            })
+        
+        return Response(data)
+    
+    # 批量审核报名
+    @action(detail=False, methods=['post'])
+    def batch_review(self, request):
+        from django.db import transaction
+        
+        apply_ids = request.data.get('apply_ids', [])
+        action_type = request.data.get('action')  # 'approve' or 'reject'
+        
+        if not apply_ids or not action_type:
+            return Response({'msg': '参数不完整'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            with transaction.atomic():
+                applies = ActivityApply.objects.filter(
+                    id__in=apply_ids,
+                    batch__activity__creator=request.user
+                )
+                
+                updated_count = 0
+                for apply in applies:
+                    if action_type == 'approve':
+                        apply.status = 'approved'
+                    elif action_type == 'reject':
+                        apply.status = 'rejected'
+                    apply.save()
+                    updated_count += 1
+                
+                return Response({
+                    'msg': f'批量审核完成，共处理{updated_count}条记录'
+                })
+                
+        except Exception as e:
+            return Response({'msg': '批量审核失败'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    # 导出报名名单
+    @action(detail=False, methods=['post'])
+    def export_applies(self, request):
+        import pandas as pd
+        from django.http import HttpResponse
+        from io import BytesIO
+        
+        activity_id = request.data.get('activity_id')
+        
+        if not activity_id:
+            return Response({'msg': '请选择活动'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            activity = Activity.objects.get(id=activity_id, creator=request.user)
+        except Activity.DoesNotExist:
+            return Response({'msg': '活动不存在'}, status=status.HTTP_404_NOT_FOUND)
+        
+        applies = ActivityApply.objects.filter(
+            batch__activity=activity
+        ).select_related('student', 'batch')
+        
+        data = []
+        for apply in applies:
+            data.append({
+                '学号': apply.student.id_number or '',
+                '姓名': apply.student.username,
+                '学院': apply.student.college or '',
+                '班级': apply.student.class_name or '',
+                '手机号': apply.student.phone or '',
+                '报名批次': apply.batch.batch_name,
+                '报名时间': apply.apply_time.strftime('%Y-%m-%d %H:%M:%S'),
+                '状态': apply.status
+            })
+        
+        df = pd.DataFrame(data)
+        
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='报名名单', index=False)
+        
+        response = HttpResponse(output.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        filename = f'{activity.name}_报名名单_{timezone.now().strftime("%Y%m%d")}.xlsx'
+        response['Content-Disposition'] = f'attachment; filename={filename}'
+        
+        return response
+
+# 违规申诉处理视图
+class AppealManagementViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
+    
+    # 查看所有申诉
+    @action(detail=False, methods=['get'])
+    def all_appeals(self, request):
+        try:
+            status_filter = request.query_params.get('status')
+            
+            appeals = BlacklistAppeal.objects.all().select_related(
+                'student', 'violation', 'reviewed_by'
+            ).order_by('-create_time')
+            
+            if status_filter:
+                appeals = appeals.filter(status=status_filter)
+            
+            data = []
+            for appeal in appeals:
+                violation_data = {
+                    'appeal_id': appeal.id,
+                    'student_name': appeal.student.username,
+                    'student_id': appeal.student.id_number,
+                    'appeal_reason': appeal.appeal_reason,
+                    'evidence': appeal.evidence,
+                    'status': appeal.status,
+                    'review_opinion': appeal.review_opinion,
+                    'review_time': appeal.review_time,
+                    'reviewed_by': appeal.reviewed_by.username if appeal.reviewed_by else '',
+                    'create_time': appeal.create_time
+                }
+                
+                # 只有当violation存在时才添加违规信息
+                if appeal.violation:
+                    violation_data['violation_type'] = appeal.violation.violation_type
+                    violation_data['violation_description'] = appeal.violation.description
+                    violation_data['penalty_hours'] = appeal.violation.penalty_hours
+                    violation_data['create_time'] = appeal.violation.create_time
+                else:
+                    violation_data['violation_type'] = ''
+                    violation_data['violation_description'] = ''
+                    violation_data['penalty_hours'] = 0
+                    violation_data['create_time'] = None
+                
+                data.append(violation_data)
+            
+            return Response(data)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    # 审核申诉
+    @action(detail=False, methods=['post'])
+    def review_appeal(self, request):
+        appeal_id = request.data.get('appeal_id')
+        action_type = request.data.get('action')  # 'approve' or 'reject'
+        review_opinion = request.data.get('review_opinion', '')
+        
+        if not appeal_id or not action_type:
+            return Response({'msg': '参数不完整'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            appeal = BlacklistAppeal.objects.get(id=appeal_id)
+            
+            if appeal.status != 'pending':
+                return Response({'msg': '该申诉已处理'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if action_type == 'approve':
+                appeal.status = 'approved'
+                # 如果申诉通过，移除违规记录的影响
+                violation = appeal.violation
+                student = violation.student
+                
+                # 恢复扣除的时长（使用原子操作）
+                if violation.penalty_hours > 0:
+                    from django.db.models import F
+                    User.objects.filter(id=student.id).update(
+                        total_hours=F('total_hours') + violation.penalty_hours,
+                        violation_count=F('violation_count') - 1
+                    )
+                
+            elif action_type == 'reject':
+                appeal.status = 'rejected'
+            
+            appeal.review_opinion = review_opinion
+            appeal.review_time = timezone.now()
+            appeal.reviewed_by = request.user
+            appeal.save()
+            
+            return Response({'msg': '申诉审核完成'})
+            
+        except BlacklistAppeal.DoesNotExist:
+            return Response({'msg': '申诉记录不存在'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # 创建违规记录
+    @action(detail=False, methods=['post'])
+    def create_violation(self, request):
+        from django.db import transaction
+        
+        student_id = request.data.get('student_id')
+        activity_id = request.data.get('activity_id')
+        violation_type = request.data.get('violation_type')
+        description = request.data.get('description')
+        penalty_hours = request.data.get('penalty_hours', 0)
+        ban_days = request.data.get('ban_days', 0)
+        
+        if not all([student_id, activity_id, violation_type, description]):
+            return Response({'msg': '参数不完整'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            with transaction.atomic():
+                student = User.objects.get(id=student_id)
+                activity = Activity.objects.get(id=activity_id, creator=request.user)
+                
+                # 创建违规记录
+                violation = ViolationRecord.objects.create(
+                    student=student,
+                    activity=activity,
+                    violation_type=violation_type,
+                    description=description,
+                    penalty_hours=penalty_hours,
+                    ban_days=ban_days,
+                    created_by=request.user
+                )
+                
+                # 更新学生信息（使用原子操作）
+                from django.db.models import F, Case, When
+                User.objects.filter(id=student_id).update(
+                    violation_count=F('violation_count') + 1,
+                    total_hours=Case(
+                        When(total_hours__gte=penalty_hours, then=F('total_hours') - penalty_hours),
+                        default=0,
+                        output_field=models.IntegerField()
+                    )
+                )
+                
+                # 设置黑名单
+                if ban_days > 0:
+                    User.objects.filter(id=student_id).update(
+                        is_blacklisted=True,
+                        blacklist_end_time=violation.ban_end_time
+                    )
+                
+                return Response({'msg': '违规记录创建成功', 'violation_id': violation.id})
+                
+        except User.DoesNotExist:
+            return Response({'msg': '学生不存在'}, status=status.HTTP_400_BAD_REQUEST)
+        except Activity.DoesNotExist:
+            return Response({'msg': '活动不存在'}, status=status.HTTP_400_BAD_REQUEST)

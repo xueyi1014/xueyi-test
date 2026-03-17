@@ -19,14 +19,33 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         return user
 
 class UserInfoSerializer(serializers.ModelSerializer):
-    idNumber = serializers.CharField(source='id_number', read_only=True)
-    phone = serializers.CharField(allow_blank=True, allow_null=True)
+    idNumber = serializers.CharField(source='id_number', required=False, allow_blank=True, allow_null=True)
+    phone = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     totalHours = serializers.IntegerField(source='total_hours', read_only=True)
-    classField = serializers.CharField(source='class_name', read_only=True, allow_blank=True, allow_null=True)
+    classField = serializers.CharField(source='class_name', required=False, allow_blank=True, allow_null=True)
+    class_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    college = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    wechat = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
+    completedActivities = serializers.SerializerMethodField()
+    pendingActivities = serializers.SerializerMethodField()
+    violationCount = serializers.SerializerMethodField()
     
     class Meta:
         model = User
-        fields = ('username', 'role', 'idNumber', 'phone', 'totalHours', 'classField')
+        fields = ('username', 'role', 'idNumber', 'phone', 'totalHours', 'classField', 'class_name', 'college', 'wechat', 'email', 'completedActivities', 'pendingActivities', 'violationCount')
+    
+    def get_completedActivities(self, obj):
+        from apps.activity.models import ActivityApply
+        return ActivityApply.objects.filter(student=obj, status='approved', check_out_time__isnull=False).count()
+    
+    def get_pendingActivities(self, obj):
+        from apps.activity.models import ActivityApply
+        return ActivityApply.objects.filter(student=obj, status='approved', check_out_time__isnull=True).count()
+    
+    def get_violationCount(self, obj):
+        from apps.activity.models import ViolationRecord
+        return ViolationRecord.objects.filter(student=obj).count()
 
 class ChangePasswordSerializer(serializers.Serializer):
     oldPwd = serializers.CharField(write_only=True, required=True)

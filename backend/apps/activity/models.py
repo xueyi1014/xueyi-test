@@ -1,6 +1,6 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
-from user.models import User
+from apps.user.models import User
 
 # 活动批次模型
 class ActivityBatch(models.Model):
@@ -44,6 +44,7 @@ class Activity(models.Model):
     address = models.CharField(max_length=200, verbose_name='活动地点', default='未知地点')
     campus = models.CharField(max_length=50, default='松山湖校区', verbose_name='校区')
     area = models.CharField(max_length=100, blank=True, verbose_name='具体区域')
+    cover_image = models.ImageField(upload_to='activity_covers/', null=True, blank=True, verbose_name='活动封面图')
     
     # 活动详情
     description = models.TextField(verbose_name='工作内容', default='暂无描述')
@@ -146,6 +147,9 @@ class ActivityApply(models.Model):
         ('rejected', '已拒绝'),
         ('cancelled', '已取消'),
     ), default='pending', verbose_name='报名状态')
+    check_in_time = models.DateTimeField(null=True, blank=True, verbose_name='签到时间')
+    check_out_time = models.DateTimeField(null=True, blank=True, verbose_name='签退时间')
+    hours = models.FloatField(default=0, verbose_name='获得时长')
 
     class Meta:
         verbose_name = '活动报名'
@@ -156,6 +160,7 @@ class ActivityApply(models.Model):
 class CheckinRecord(models.Model):
     apply = models.OneToOneField(ActivityApply, on_delete=models.CASCADE, related_name='checkin', verbose_name='报名记录')
     checkin_time = models.DateTimeField(auto_now_add=True, verbose_name='签到时间')
+    checkout_time = models.DateTimeField(null=True, blank=True, verbose_name='签退时间')
     checkin_code = models.CharField(max_length=10, unique=True, verbose_name='签到码')
     hours = models.FloatField(validators=[MinValueValidator(0)], default=0, verbose_name='获得时长')
     

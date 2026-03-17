@@ -7,157 +7,198 @@
         </div>
       </template>
 
-      <!-- 我的报名记录 -->
-      <div class="my-applies">
-        <h3>我的报名记录</h3>
-        <el-table :data="myApplies" border style="width: 100%;">
-          <el-table-column prop="batch.activity.name" label="活动名称" />
-          <el-table-column prop="batch.batch_name" label="批次" />
-          <el-table-column label="活动时间">
-            <template #default="{ row }">
-              {{ formatTime(row.batch.start_time) }} - {{ formatTime(row.batch.end_time) }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="status" label="审核状态">
-            <template #default="{ row }">
-              <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="签到状态">
-            <template #default="{ row }">
-              <el-tag v-if="row.checkin" type="success">已签到</el-tag>
-              <el-tag v-else type="info">未签到</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="获得时长">
-            <template #default="{ row }">
-              {{ row.checkin ? row.checkin.hours + '小时' : '-' }}
-            </template>
-          </el-table-column>
-          <el-table-column label="操作">
-            <template #default="{ row }">
-              <el-button 
-                type="primary" 
-                size="small" 
-                :disabled="row.status !== 'approved' || !!row.checkin"
-                @click="handleCheckin(row)">
-                {{ row.checkin ? '已签到' : '签到' }}
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
+      <!-- 标签页 -->
+      <el-tabs v-model="activeTab" @tab-change="handleTabChange">
+        <!-- 可签到活动 -->
+        <el-tab-pane label="可签到活动" name="available">
+          <div v-loading="loading">
+            <el-table :data="availableActivities" stripe style="width: 100%">
+              <el-table-column prop="activity_name" label="活动名称" min-width="200" />
+              <el-table-column prop="batch_name" label="批次" width="150" />
+              <el-table-column label="活动时间" width="280">
+                <template #default="{ row }">
+                  {{ formatTime(row.start_time) }} - {{ formatTime(row.end_time) }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="address" label="活动地点" width="150" />
+              <el-table-column label="签到状态" width="120">
+                <template #default="{ row }">
+                  <el-tag v-if="row.check_in_time" type="success">已签到</el-tag>
+                  <el-tag v-else-if="row.check_out_time" type="info">已签退</el-tag>
+                  <el-tag v-else type="warning">未签到</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="200" fixed="right">
+                <template #default="{ row }">
+                  <el-button 
+                    v-if="!row.check_in_time && canCheckIn(row)"
+                    type="primary" 
+                    size="small"
+                    @click="handleCheckIn(row)">
+                    签到
+                  </el-button>
+                  <el-button 
+                    v-if="row.check_in_time && !row.check_out_time"
+                    type="success" 
+                    size="small"
+                    @click="handleCheckOut(row)">
+                    签退
+                  </el-button>
+                  <el-tag v-if="row.check_out_time" type="info" size="small">已完成</el-tag>
+                  <el-tag v-if="!row.check_in_time && !canCheckIn(row)" type="info" size="small">未到签到时间</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
 
-      <!-- 扫码签到 -->
-      <div class="qr-checkin" v-if="selectedApply">
-        <el-divider>扫码签到</el-divider>
-        <div class="qr-section">
-          <div class="qr-info">
-            <h4>活动信息</h4>
-            <p>活动名称：{{ selectedApply.batch.activity.name }}</p>
-            <p>批次：{{ selectedApply.batch.batch_name }}</p>
-            <p>时间：{{ formatTime(selectedApply.batch.start_time) }} - {{ formatTime(selectedApply.batch.end_time) }}</p>
-            <p>地点：{{ selectedApply.batch.activity.address }}</p>
-          </div>
-          <div class="qr-code">
-            <div class="code-display">
-              <div class="code-text">{{ checkinCode }}</div>
-              <p class="code-hint">请向工作人员出示此签到码</p>
+            <div v-if="!loading && availableActivities.length === 0" class="empty-state">
+              <el-empty description="暂无可签到活动" />
             </div>
           </div>
-        </div>
-        <div class="checkin-actions">
-          <el-button type="primary" @click="confirmCheckin">确认签到</el-button>
-          <el-button @click="cancelCheckin">取消</el-button>
-        </div>
-      </div>
+        </el-tab-pane>
+
+        <!-- 历史签到记录 -->
+        <el-tab-pane label="历史签到记录" name="history">
+          <div v-loading="loading">
+            <el-table :data="historyRecords" stripe style="width: 100%">
+              <el-table-column prop="activity_name" label="活动名称" min-width="200" />
+              <el-table-column prop="batch_name" label="批次" width="150" />
+              <el-table-column label="签到时间" width="180">
+                <template #default="{ row }">
+                  {{ row.check_in_time ? formatTime(row.check_in_time) : '-' }}
+                </template>
+              </el-table-column>
+              <el-table-column label="签退时间" width="180">
+                <template #default="{ row }">
+                  {{ row.check_out_time ? formatTime(row.check_out_time) : '-' }}
+                </template>
+              </el-table-column>
+              <el-table-column label="时长（小时）" width="120">
+                <template #default="{ row }">
+                  {{ row.hours || '-' }}
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag v-if="row.check_out_time" type="success">已完成</el-tag>
+                  <el-tag v-else-if="row.check_in_time" type="warning">进行中</el-tag>
+                  <el-tag v-else type="info">未开始</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div v-if="!loading && historyRecords.length === 0" class="empty-state">
+              <el-empty description="暂无签到记录" />
+            </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { activityAPI } from '@/api'
 
+const activeTab = ref('available')
 const myApplies = ref([])
-const selectedApply = ref(null)
-const checkinCode = ref('')
+const loading = ref(false)
+
+// 可签到活动 - 已审核通过且在活动时间范围内
+const availableActivities = computed(() => {
+  return myApplies.value.filter(apply => 
+    apply.status === 'approved' && 
+    apply.batch &&
+    apply.batch.activity
+  ).map(apply => ({
+    id: apply.id,
+    activity_name: apply.batch.activity.name,
+    batch_name: apply.batch.batch_name,
+    start_time: apply.batch.start_time,
+    end_time: apply.batch.end_time,
+    address: apply.batch.activity.address,
+    check_in_time: apply.check_in_time,
+    check_out_time: apply.check_out_time,
+    hours: apply.hours
+  }))
+})
+
+// 历史签到记录 - 所有有签到记录的活动
+const historyRecords = computed(() => {
+  return myApplies.value.filter(apply => 
+    apply.check_in_time || apply.check_out_time
+  ).map(apply => ({
+    id: apply.id,
+    activity_name: apply.batch?.activity?.name || '未知活动',
+    batch_name: apply.batch?.batch_name || '未知批次',
+    check_in_time: apply.check_in_time,
+    check_out_time: apply.check_out_time,
+    hours: apply.hours
+  }))
+})
+
+// 判断是否可以签到（在活动开始时间前30分钟到活动结束时间内）
+const canCheckIn = (activity) => {
+  const now = new Date()
+  const startTime = new Date(activity.start_time)
+  const endTime = new Date(activity.end_time)
+  const checkInTime = new Date(startTime.getTime() - 30 * 60 * 1000) // 提前30分钟
+  
+  return now >= checkInTime && now <= endTime
+}
 
 // 加载我的报名记录
 const loadMyApplies = async () => {
   try {
+    loading.value = true
     const res = await activityAPI.getMyApplies()
     myApplies.value = res
   } catch (error) {
     ElMessage.error('加载报名记录失败')
+  } finally {
+    loading.value = false
   }
 }
 
 // 处理签到
-const handleCheckin = async (apply) => {
+const handleCheckIn = async (activity) => {
   try {
-    await ElMessageBox.confirm(
-      `确定要签到「${apply.batch.activity.name} - ${apply.batch.batch_name}」吗？`,
-      '签到确认',
-      { type: 'warning' }
-    )
-    
-    selectedApply.value = apply
-    // 生成随机签到码
-    checkinCode.value = Math.random().toString(36).substring(2, 8).toUpperCase()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('签到确认失败')
-    }
-  }
-}
-
-// 确认签到
-const confirmCheckin = async () => {
-  try {
-    await activityAPI.checkin(selectedApply.value.batch.activity.id, selectedApply.value.id)
+    await activityAPI.checkin(activity.id, activity.id)
     ElMessage.success('签到成功！')
-    selectedApply.value = null
-    checkinCode.value = ''
-    loadMyApplies()
+    await loadMyApplies()
   } catch (error) {
     ElMessage.error(error.response?.data?.msg || '签到失败')
   }
 }
 
-// 取消签到
-const cancelCheckin = () => {
-  selectedApply.value = null
-  checkinCode.value = ''
-}
-
-// 工具函数
-const getStatusText = (status) => {
-  const statusMap = {
-    pending: '待审核',
-    approved: '已通过',
-    rejected: '已拒绝'
+// 处理签退
+const handleCheckOut = async (activity) => {
+  try {
+    await activityAPI.checkout(activity.id, activity.id)
+    ElMessage.success('签退成功！')
+    await loadMyApplies()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.msg || '签退失败')
   }
-  return statusMap[status] || status
 }
 
-const getStatusType = (status) => {
-  const typeMap = {
-    pending: 'warning',
-    approved: 'success',
-    rejected: 'danger'
-  }
-  return typeMap[status] || 'info'
+// 标签切换
+const handleTabChange = (tab) => {
+  console.log('切换到标签:', tab)
 }
 
+// 格式化时间
 const formatTime = (timeStr) => {
   if (!timeStr) return ''
   return new Date(timeStr).toLocaleString('zh-CN')
 }
 
 onMounted(() => {
-  loadMyApplies()
+  const userRole = localStorage.getItem('userRole')
+  if (userRole === 'student') {
+    loadMyApplies()
+  }
 })
 </script>
 
@@ -165,58 +206,15 @@ onMounted(() => {
 .checkin-page {
   padding: 20px;
 }
+
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-.my-applies {
-  margin-bottom: 30px;
-}
-.qr-checkin {
-  margin-top: 30px;
-}
-.qr-section {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 40px;
-}
-.qr-info {
-  flex: 1;
-}
-.qr-info h4 {
-  margin-bottom: 15px;
-  color: #333;
-}
-.qr-info p {
-  margin: 8px 0;
-  color: #666;
-}
-.qr-code {
-  flex: 0 0 200px;
-}
-.code-display {
+
+.empty-state {
+  margin-top: 40px;
   text-align: center;
-  padding: 20px;
-  border: 2px solid #e6e6e6;
-  border-radius: 8px;
-  background: #f8f9fa;
-}
-.code-text {
-  font-size: 24px;
-  font-weight: bold;
-  color: #1e73ff;
-  letter-spacing: 2px;
-  margin-bottom: 10px;
-}
-.code-hint {
-  font-size: 12px;
-  color: #999;
-  margin: 0;
-}
-.checkin-actions {
-  text-align: center;
-  margin-top: 20px;
 }
 </style>

@@ -12,6 +12,15 @@ class User(AbstractUser):
     phone = models.CharField(max_length=11, blank=True, null=True, verbose_name='手机号')
     total_hours = models.IntegerField(default=0, verbose_name='累计志愿时长')
     class_name = models.CharField(max_length=50, blank=True, null=True, verbose_name='负责班级')
+    college = models.CharField(max_length=100, blank=True, null=True, verbose_name='学院')
+    wechat = models.CharField(max_length=50, blank=True, null=True, verbose_name='微信号')
+    email = models.EmailField(blank=True, null=True, verbose_name='邮箱')
+    credit_level = models.IntegerField(default=5, verbose_name='信用等级')
+    is_blacklisted = models.BooleanField(default=False, verbose_name='是否黑名单')
+    blacklist_end_time = models.DateTimeField(null=True, blank=True, verbose_name='黑名单结束时间')
+    violation_count = models.IntegerField(default=0, verbose_name='违规次数')
+    completed_activities = models.IntegerField(default=0, verbose_name='已参与活动数')
+    pending_activities = models.IntegerField(default=0, verbose_name='待参与活动数')
 
     class Meta:
         verbose_name = '用户'
