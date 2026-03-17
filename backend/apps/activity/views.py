@@ -160,8 +160,8 @@ class ActivityViewSet(viewsets.ModelViewSet):
         
         try:
             with transaction.atomic():
-                # 获取报名记录
-                apply = ActivityApply.objects.get(id=apply_id, student=request.user)
+                # 使用 select_for_update 获取行锁，防止竞态条件
+                apply = ActivityApply.objects.select_for_update().get(id=apply_id, student=request.user)
                 
                 # 检查报名状态
                 if apply.status != 'pending':
@@ -787,7 +787,7 @@ class ActivityViewSet(viewsets.ModelViewSet):
 class ViolationViewSet(viewsets.ModelViewSet):
     queryset = ViolationRecord.objects.all()
     serializer_class = ViolationRecordSerializer
-    permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
+    permission_classes = [permissions.IsAuthenticated, IsTeacher]
     
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -916,14 +916,14 @@ class BlacklistAppealViewSet(viewsets.ModelViewSet):
 class BatchViewSet(viewsets.ModelViewSet):
     queryset = ActivityBatch.objects.all()
     serializer_class = ActivityBatchSerializer
-    permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
+    permission_classes = [permissions.IsAuthenticated, IsTeacher]
     
     def get_queryset(self):
         return ActivityBatch.objects.filter(activity__creator=self.request.user)
 
 # Excel导出视图
 class ExportViewSet(viewsets.ViewSet):
-    permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
+    permission_classes = [permissions.IsAuthenticated, IsTeacher]
     
     # 导出志愿时长报表
     @action(detail=False, methods=['post'])
@@ -1236,7 +1236,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
 # 海报生成视图
 class PosterViewSet(viewsets.ViewSet):
-    permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
+    permission_classes = [permissions.IsAuthenticated, IsTeacher]
     
     # 生成活动海报
     @action(detail=True, methods=['post'])
@@ -1322,13 +1322,13 @@ class PosterViewSet(viewsets.ViewSet):
 
 # 统计分析视图
 class StatisticsViewSet(viewsets.ViewSet):
-    permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
+    permission_classes = [permissions.IsAuthenticated, IsTeacher]
     
     # 全院时长统计
     @action(detail=False, methods=['get'])
     def hours_stats(self, request):
         from django.db.models import Sum, Count, Q, Value
-        from django.db.models.functions import Coalesce
+        from django.db.models.functions import Coalesce, Cast
         from django.utils import timezone
         from datetime import datetime, timedelta
         import logging
@@ -1356,7 +1356,7 @@ class StatisticsViewSet(viewsets.ViewSet):
             # 按学院统计
             college_stats = []
             college_data = queryset.values('student__college').annotate(
-                total_hours=Coalesce(Sum('hours'), 0),
+                total_hours=Coalesce(Sum('hours', output_field=models.FloatField()), Cast(Value(0), models.FloatField())),
                 student_count=Count('student', distinct=True),
                 activity_count=Count('id')
             ).order_by('-total_hours')
@@ -1372,7 +1372,7 @@ class StatisticsViewSet(viewsets.ViewSet):
             # 按班级统计
             class_stats = []
             class_data = queryset.values('student__college', 'student__class_name').annotate(
-                total_hours=Coalesce(Sum('hours'), 0),
+                total_hours=Coalesce(Sum('hours', output_field=models.FloatField()), Cast(Value(0), models.FloatField())),
                 student_count=Count('student', distinct=True),
                 activity_count=Count('id')
             ).order_by('-total_hours')
@@ -1396,7 +1396,7 @@ class StatisticsViewSet(viewsets.ViewSet):
                 hours = queryset.filter(
                     check_out_time__gte=month_start,
                     check_out_time__lte=month_end
-                ).aggregate(total=Sum('hours'))['total'] or 0
+                ).aggregate(total=Sum('hours', output_field=models.FloatField()))['total'] or 0
                 
                 monthly_trend.append({
                     'month': month_start.strftime('%Y-%m'),
@@ -1408,7 +1408,7 @@ class StatisticsViewSet(viewsets.ViewSet):
             # 活跃度排名（学生）
             student_ranking = []
             student_data = queryset.values('student__username', 'student__id_number', 'student__college', 'student__class_name').annotate(
-                total_hours=Coalesce(Sum('hours'), 0),
+                total_hours=Coalesce(Sum('hours', output_field=models.FloatField()), Cast(Value(0), models.FloatField())),
                 activity_count=Count('id')
             ).order_by('-total_hours')[:20]
             
@@ -1771,7 +1771,7 @@ class ApplicationManagementViewSet(viewsets.ViewSet):
 
 # 违规申诉处理视图
 class AppealManagementViewSet(viewsets.ViewSet):
-    permission_classes = [permissions.IsAuthenticated(), IsTeacher()]
+    permission_classes = [permissions.IsAuthenticated, IsTeacher]
     
     # 查看所有申诉
     @action(detail=False, methods=['get'])
@@ -1790,33 +1790,36 @@ class AppealManagementViewSet(viewsets.ViewSet):
             for appeal in appeals:
                 violation_data = {
                     'appeal_id': appeal.id,
-                    'student_name': appeal.student.username,
-                    'student_id': appeal.student.id_number,
-                    'appeal_reason': appeal.appeal_reason,
-                    'evidence': appeal.evidence,
-                    'status': appeal.status,
-                    'review_opinion': appeal.review_opinion,
+                    'student_name': appeal.student.username if appeal.student else '',
+                    'student_id': appeal.student.id_number if appeal.student else '',
+                    'appeal_reason': appeal.appeal_reason or '',
+                    'evidence': appeal.evidence or '',
+                    'status': appeal.status or '',
+                    'review_opinion': appeal.review_opinion or '',
                     'review_time': appeal.review_time,
                     'reviewed_by': appeal.reviewed_by.username if appeal.reviewed_by else '',
                     'create_time': appeal.create_time
                 }
                 
-                # 只有当violation存在时才添加违规信息
+                # 只有当 violation 存在时才添加违规信息
                 if appeal.violation:
-                    violation_data['violation_type'] = appeal.violation.violation_type
-                    violation_data['violation_description'] = appeal.violation.description
-                    violation_data['penalty_hours'] = appeal.violation.penalty_hours
-                    violation_data['create_time'] = appeal.violation.create_time
+                    violation_data['violation_type'] = appeal.violation.violation_type or ''
+                    violation_data['violation_description'] = appeal.violation.description or ''
+                    violation_data['penalty_hours'] = appeal.violation.penalty_hours or 0
+                    violation_data['violation_create_time'] = appeal.violation.create_time
                 else:
                     violation_data['violation_type'] = ''
                     violation_data['violation_description'] = ''
                     violation_data['penalty_hours'] = 0
-                    violation_data['create_time'] = None
+                    violation_data['violation_create_time'] = None
                 
                 data.append(violation_data)
             
             return Response(data)
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in all_appeals: {str(e)}", exc_info=True)
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     # 审核申诉

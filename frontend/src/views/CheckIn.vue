@@ -112,7 +112,8 @@ const availableActivities = computed(() => {
     apply.batch &&
     apply.batch.activity
   ).map(apply => ({
-    id: apply.id,
+    apply_id: apply.id, // 报名 ID
+    activity_id: apply.batch.activity.id, // 活动 ID
     activity_name: apply.batch.activity.name,
     batch_name: apply.batch.batch_name,
     start_time: apply.batch.start_time,
@@ -129,7 +130,8 @@ const historyRecords = computed(() => {
   return myApplies.value.filter(apply => 
     apply.check_in_time || apply.check_out_time
   ).map(apply => ({
-    id: apply.id,
+    apply_id: apply.id,
+    activity_id: apply.batch?.activity?.id || null,
     activity_name: apply.batch?.activity?.name || '未知活动',
     batch_name: apply.batch?.batch_name || '未知批次',
     check_in_time: apply.check_in_time,
@@ -162,9 +164,9 @@ const loadMyApplies = async () => {
 }
 
 // 处理签到
-const handleCheckIn = async (activity) => {
+const handleCheckIn = async (record) => {
   try {
-    await activityAPI.checkin(activity.id, activity.id)
+    await activityAPI.checkin(record.activity_id, record.apply_id)
     ElMessage.success('签到成功！')
     await loadMyApplies()
   } catch (error) {
@@ -173,9 +175,9 @@ const handleCheckIn = async (activity) => {
 }
 
 // 处理签退
-const handleCheckOut = async (activity) => {
+const handleCheckOut = async (record) => {
   try {
-    await activityAPI.checkout(activity.id, activity.id)
+    await activityAPI.checkout(record.activity_id, record.apply_id)
     ElMessage.success('签退成功！')
     await loadMyApplies()
   } catch (error) {

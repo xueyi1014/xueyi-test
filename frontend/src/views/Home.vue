@@ -286,32 +286,32 @@
           </div>
 
           <!-- 学生端：我的时长统计 -->
-          <div v-show="activeMenu === '3-1' && userRole === 'student'">
+          <div v-if="activeMenu === '3-1' && userRole === 'student'">
             <HourStats />
           </div>
 
           <!-- 教师端：统计分析 -->
-          <div v-show="activeMenu === '3-1' && userRole === 'teacher'">
+          <div v-if="activeMenu === '3-1' && userRole === 'teacher'">
             <Statistics />
           </div>
 
           <!-- 学生端：违规与申诉 -->
-          <div v-show="activeMenu === '3-2' && userRole === 'student'">
+          <div v-if="activeMenu === '3-2' && userRole === 'student'">
             <Violations />
           </div>
 
           <!-- 教师端：时长管理 -->
-          <div v-show="activeMenu === '3-2' && userRole === 'teacher'">
+          <div v-if="activeMenu === '3-2' && userRole === 'teacher'">
             <ManageHours />
           </div>
 
           <!-- 教师端：违规与申诉 -->
-          <div v-show="activeMenu === '3-3' && userRole === 'teacher'">
+          <div v-if="activeMenu === '3-3' && userRole === 'teacher'">
             <ManageAppeal />
           </div>
 
           <!-- 教师端：海报生成 -->
-          <div v-show="activeMenu === '3-4' && userRole === 'teacher'">
+          <div v-if="activeMenu === '3-4' && userRole === 'teacher'">
             <Poster />
           </div>
         </div>

@@ -94,7 +94,7 @@ class UserViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated], authentication_classes=[JWTAuthentication])
     def teacher_stats(self, request):
         from apps.activity.models import Activity, ActivityApply
-        from apps.activity.models import AppealRecord
+        from apps.activity.models import BlacklistAppeal
         from django.utils import timezone
 
         user = request.user
@@ -108,28 +108,28 @@ class UserViewSet(viewsets.GenericViewSet):
             })
 
         # 发布的活动数
-        published_activities = Activity.objects.filter(organizer=user).count()
+        published_activities = Activity.objects.filter(creator=user).count()
         
         # 进行中的活动数
         ongoing_activities = Activity.objects.filter(
-            organizer=user,
+            creator=user,
             status='ongoing'
         ).count()
         
         # 总参与学生数（去重）
         total_students = ActivityApply.objects.filter(
-            batch__activity__organizer=user
+            batch__activity__creator=user
         ).values('student').distinct().count()
         
         # 待处理申诉数
-        pending_appeals = AppealRecord.objects.filter(
+        pending_appeals = BlacklistAppeal.objects.filter(
             student__college=user.college,
             status='pending'
         ).count()
         
         # 待审核报名数
         pending_applies = ActivityApply.objects.filter(
-            batch__activity__organizer=user,
+            batch__activity__creator=user,
             status='pending'
         ).count()
 
